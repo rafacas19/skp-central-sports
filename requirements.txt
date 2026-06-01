@@ -1,0 +1,16 @@
+# Core Telegram bot framework
+python-telegram-bot==21.6
+
+# Configuration
+python-dotenv==1.0.1
+
+# AI providers (only needed when USE_MOCK_AI=false)
+# Use floors, not exact pins: older anthropic/openai releases pass a `proxies`
+# kwarg that httpx>=0.28 removed, which crashes at client construction.
+anthropic>=0.69,<1.0
+openai>=2.0,<3.0
+httpx>=0.28,<1.0
+
+# Testing
+pytest==8.3.3
+pytest-asyncio==0.24.0
