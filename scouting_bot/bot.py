@@ -464,8 +464,10 @@ def _parse_match_arg(arg: str) -> tuple[str, str, str | None]:
 def build_application() -> Application:
     if not settings.telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not set (see .env.example)")
+    # Fail fast if live-AI mode is selected without the required keys.
+    settings.require_ai_keys()
 
-    storage = Storage(settings.database_path)
+    storage = Storage(settings.database_url)
     ai = get_provider()
     service = ScoutingService(storage, ai, settings.confidence_threshold)
 

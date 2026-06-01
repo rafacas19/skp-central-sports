@@ -17,7 +17,7 @@ outline (ES) and [the approved plan](~/.claude/plans/) for the full MVP spec.
 - **Asks only when unsure.** Confident notes are logged silently; ambiguous ones
   (e.g. a jersey number shared by both teams) trigger a quick inline question.
 - **Corrections any time.** `/undo`, reassign player, flip sentiment, add missing players.
-- **Resilient sessions.** State lives in SQLite — a bot restart or a dropped
+- **Resilient sessions.** State lives in Postgres — a bot restart or a dropped
   phone never loses an active session; the agent just keeps sending notes.
   An auto-nudge pings sessions left open too long.
 - **Report in Telegram.** A formatted summary message **+ a downloadable markdown file.**
@@ -29,7 +29,7 @@ scouting_bot/
   config.py        # env-driven settings (single source)
   taxonomy.py      # closed skill/sentiment lists (Open Question #1 lives here)
   models.py        # Session / Player / Observation dataclasses
-  storage.py       # SQLite repository — the only SQL; swap to Postgres in Phase 2
+  storage.py       # Postgres repository (psycopg 3 + pool) — the only SQL
   ai/
     base.py        # AIProvider protocol + structured return types (the swap seam)
     mock.py        # deterministic mock — no API keys, exercises every branch
@@ -50,15 +50,47 @@ pip install -r requirements.txt
 cp .env.example .env          # then edit
 ```
 
-At minimum set `TELEGRAM_BOT_TOKEN` (from @BotFather). Leave `USE_MOCK_AI=true`
-to run without AI keys; set it to `false` and fill `ANTHROPIC_API_KEY` +
-`OPENAI_API_KEY` for real transcription/vision/classification.
+Set at minimum:
+- `TELEGRAM_BOT_TOKEN` (from @BotFather)
+- `DATABASE_URL` — a Postgres connection string. For local dev, spin one up:
+  ```bash
+  docker run -d --name scouting-pg -e POSTGRES_PASSWORD=scouting \
+      -e POSTGRES_DB=scouting -e POSTGRES_USER=scouting \
+      -p 5432:5432 postgres:16-alpine
+  # DATABASE_URL=postgresql://scouting:scouting@localhost:5432/scouting
+  ```
+
+Leave `USE_MOCK_AI=true` to run without AI keys; set it to `false` and fill
+`ANTHROPIC_API_KEY` + `OPENAI_API_KEY` for real transcription/vision/classification.
 
 ## Run
 
 ```bash
 python -m scouting_bot
 ```
+
+The run mode is chosen automatically:
+- **Polling** (local dev) when `WEBHOOK_BASE_URL` is empty — no public URL needed.
+- **Webhook** (production) when `WEBHOOK_BASE_URL` is set — runs as a web service
+  bound to `$PORT` and Telegram pushes updates to a secret path.
+
+## Deploy to Render
+
+This repo ships a [`render.yaml`](render.yaml) Blueprint that provisions a managed
+Postgres and a web service running the bot in webhook mode.
+
+1. Push to GitHub, then **Render → New → Blueprint** and pick this repo.
+2. Render auto-creates the database and wires `DATABASE_URL`, `WEBHOOK_BASE_URL`,
+   `WEBHOOK_SECRET`, and `PORT`. Set `TELEGRAM_BOT_TOKEN` in the dashboard.
+3. It deploys mocked (`USE_MOCK_AI=true`) so you can verify the bot answers in
+   Telegram with no AI keys. To go live, set `USE_MOCK_AI=false` and add
+   `ANTHROPIC_API_KEY` + `OPENAI_API_KEY`, then redeploy.
+
+Notes:
+- Webhook mode needs an **always-on** instance — the free tier spins down on
+  idle and would drop webhooks, so the Blueprint uses the Starter plan.
+- The bot registers its own webhook with Telegram on startup; no manual
+  `setWebhook` call needed.
 
 ## Usage (in Telegram)
 
@@ -79,13 +111,18 @@ are both accepted for the side argument.
 
 ## Tests
 
+Tests run against a real Postgres (the project is Postgres-only). Point
+`TEST_DATABASE_URL` at a throwaway database, then:
+
 ```bash
+export TEST_DATABASE_URL=postgresql://postgres:test@localhost:5432/scouting_test
 pytest
 ```
 
-Covers persistence (incl. one-active-session-per-agent and reload-from-disk),
-note classification + disambiguation routing, corrections, roster gaps, and a
-full end-to-end report render — all on the mock AI.
+If no test Postgres is reachable the suite skips with a clear message rather
+than failing. Coverage: persistence (incl. one-active-session-per-agent and
+reload-from-disk), note classification + disambiguation routing, corrections,
+roster gaps, and a full end-to-end report render — all on the mock AI.
 
 ## Not in this MVP (Phase 2 / out of scope)
 

@@ -1,0 +1,64 @@
+# Render Blueprint — deploy with: Render Dashboard → New → Blueprint → this repo.
+# Provisions a managed Postgres + a web service running the bot in webhook mode.
+# Docs: https://render.com/docs/blueprint-spec
+
+databases:
+  - name: scouting-db
+    plan: basic-256mb        # smallest paid managed Postgres; free tier expires after 30 days
+    databaseName: scouting
+    user: scouting
+
+services:
+  - type: web
+    name: skp-central-sports
+    runtime: python
+    plan: starter            # webhook mode needs an always-on instance (free spins down)
+    region: oregon           # change to your nearest region
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m scouting_bot
+    healthCheckPath: /        # PTB's webhook server answers health probes
+    autoDeploy: true
+    envVars:
+      # ── Database: injected from the managed Postgres above ──────────────
+      - key: DATABASE_URL
+        fromDatabase:
+          name: scouting-db
+          property: connectionString
+
+      # ── Webhook runtime ────────────────────────────────────────────────
+      # RENDER_EXTERNAL_URL is provided by Render; we reuse it as the webhook base.
+      - key: WEBHOOK_BASE_URL
+        fromService:
+          type: web
+          name: skp-central-sports
+          property: host          # resolves to e.g. skp-central-sports.onrender.com
+      - key: WEBHOOK_SECRET
+        generateValue: true       # Render generates a random secret
+      # PORT is set automatically by Render; config.py reads it.
+
+      # ── Telegram ───────────────────────────────────────────────────────
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false               # set in the dashboard (secret)
+
+      # ── AI mode ────────────────────────────────────────────────────────
+      # Start mocked (no keys needed) to verify the deploy, then flip to false
+      # and fill the keys below in the dashboard to go live.
+      - key: USE_MOCK_AI
+        value: "true"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-4-8
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_TRANSCRIBE_MODEL
+        value: whisper-1
+
+      # ── Behaviour ──────────────────────────────────────────────────────
+      - key: CONFIDENCE_THRESHOLD
+        value: "0.65"
+      - key: SESSION_NUDGE_MINUTES
+        value: "120"
+
+      - key: PYTHON_VERSION
+        value: "3.11.14"
