@@ -84,12 +84,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # NOTE: deliberately do NOT delete_webhook() here. During a rolling
+        # deploy the departing instance would clear the webhook that the new
+        # instance just registered, leaving the bot silent until manually reset.
+        # The webhook is owned by whichever instance last called set_webhook on
+        # startup; leaving it in place is correct across restarts.
         if application is not None:
-            if settings.use_webhook:
-                try:
-                    await application.bot.delete_webhook()
-                except Exception:  # noqa: BLE001 — best-effort on shutdown
-                    logger.exception("delete_webhook failed")
             await application.stop()
             await application.shutdown()
         await close_db()
