@@ -58,7 +58,7 @@ class Player(Model):
     side = fields.CharField(max_length=8)  # HOME | AWAY
     number = fields.IntField(null=True)
     name = fields.TextField()
-    position = fields.CharField(max_length=16, null=True)
+    position = fields.CharField(max_length=80, null=True)
     is_target = fields.BooleanField(default=False)
 
     class Meta:
