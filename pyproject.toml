@@ -1,0 +1,5 @@
+[tool.aerich]
+# Aerich reads the Tortoise config from this dotted path.
+tortoise_orm = "scouting_bot.db.TORTOISE_ORM"
+location = "./migrations"
+src_folder = "./."

@@ -1,72 +1,65 @@
-"""Test fixtures — Postgres-backed (the project is Postgres-only).
+"""Test fixtures — async, Postgres-backed via Tortoise.
 
-A test database is required. Point TEST_DATABASE_URL (or DATABASE_URL) at a
-throwaway Postgres. If none is reachable the suite is skipped with a clear
-message rather than erroring confusingly.
+Tests run against the same engine as production (Postgres). Provide a database
+through DATABASE_URL (or TEST_DATABASE_URL); docker-compose's `db` service is the
+intended local source:
 
-  # quick local Postgres for tests:
-  docker run -d --name pg-test -e POSTGRES_PASSWORD=test \\
-      -e POSTGRES_DB=scouting_test -p 5432:5432 postgres:16-alpine
-  export TEST_DATABASE_URL=postgresql://postgres:test@localhost:5432/scouting_test
+    docker compose run --rm api pytest
 
-Each test runs against a clean schema (all tables dropped & recreated), so tests
-are isolated and order-independent.
+If no database is reachable the suite is skipped with a clear message rather than
+erroring confusingly. Each test starts from a clean schema (tables truncated).
 """
 
 import os
 
 import pytest
+import pytest_asyncio
+from tortoise import Tortoise
 
 from scouting_bot.ai.mock import MockAIProvider
+from scouting_bot.db import _normalize_db_url
 from scouting_bot.service import ScoutingService
 from scouting_bot.storage import Storage
 
-_DSN = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+_DSN = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL") or ""
 
+_TORTOISE_TEST_CONFIG = {
+    "connections": {"default": _normalize_db_url(_DSN)} if _DSN else {},
+    "apps": {
+        "models": {
+            "models": ["scouting_bot.models"],
+            "default_connection": "default",
+        }
+    },
+}
 
-def _reachable(dsn: str) -> bool:
-    try:
-        import psycopg
-
-        with psycopg.connect(dsn, connect_timeout=3) as conn:
-            conn.execute("SELECT 1")
-        return True
-    except Exception:
-        return False
-
-
-# Resolved once at collection time so the skip reason is clear and uniform.
-_AVAILABLE = bool(_DSN) and _reachable(_DSN)
 _SKIP = pytest.mark.skipif(
-    not _AVAILABLE,
+    not _DSN,
     reason=(
-        "No test Postgres reachable. Set TEST_DATABASE_URL (or DATABASE_URL) to a "
-        "throwaway Postgres — see tests/conftest.py."
+        "No test database. Set TEST_DATABASE_URL or DATABASE_URL to a Postgres "
+        "(docker compose run --rm api pytest)."
     ),
 )
-
-# Apply the skip to every test in the suite (the whole project needs Postgres).
 pytestmark = _SKIP
 
 
-def _truncate(storage: Storage) -> None:
-    """Wipe all rows + reset identities so each test starts from a clean slate."""
-    with storage._pool.connection() as conn:  # noqa: SLF001 — test-only helper
-        conn.execute(
-            "TRUNCATE observations, players, sessions RESTART IDENTITY CASCADE"
-        )
+@pytest_asyncio.fixture
+async def storage():
+    if not _DSN:
+        pytest.skip("No test database configured.")
+    await Tortoise.init(config=_TORTOISE_TEST_CONFIG)
+    await Tortoise.generate_schemas(safe=True)
+    # Clean slate so tests are isolated and order-independent.
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query(
+        "TRUNCATE observations, players, sessions RESTART IDENTITY CASCADE"
+    )
+    try:
+        yield Storage()
+    finally:
+        await Tortoise.close_connections()
 
 
-@pytest.fixture
-def storage():
-    if not _AVAILABLE:
-        pytest.skip("No test Postgres reachable.")
-    s = Storage(_DSN)
-    _truncate(s)  # clean before, so a prior crashed run can't leak state
-    yield s
-    s.close()
-
-
-@pytest.fixture
-def service(storage):
+@pytest_asyncio.fixture
+async def service(storage):
     return ScoutingService(storage, MockAIProvider(), confidence_threshold=0.65)

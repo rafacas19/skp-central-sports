@@ -110,7 +110,7 @@ async def cmd_newmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
-    session, existing = _svc(context).start_session(chat_id, home, away, label)
+    session, existing = await _svc(context).start_session(chat_id, home, away, label)
     if existing is not None:
         await update.message.reply_text(
             f"⚠️ Ya tienes una sesión activa: "
@@ -131,12 +131,12 @@ async def cmd_newmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def cmd_endmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     svc = _svc(context)
-    session = svc.storage.get_active_session(chat_id)
+    session = await svc.storage.get_active_session(chat_id)
     if session is None:
         await update.message.reply_text("No hay ninguna sesión activa. Inicia una con /nuevo.")
         return
 
-    ended = svc.end_session(session)
+    ended = await svc.end_session(session)
     await update.message.reply_text("🏁 Sesión finalizada. Generando informe…")
 
     summary = build_summary(ended)
@@ -152,7 +152,7 @@ async def cmd_endmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def cmd_addplayer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Roster gap: /addplayer home 14 Gómez CB"""
-    session = _require_session(update, context)
+    session = await _require_session(update, context)
     if session is None:
         return
     args = context.args or []
@@ -170,13 +170,13 @@ async def cmd_addplayer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     name = args[2]
     position = args[3] if len(args) > 3 else None
-    _svc(context).add_missing_player(session, side, number, name, position)
+    await _svc(context).add_missing_player(session, side, number, name, position)
     await update.message.reply_text(f"➕ Añadido {_side_label(side)} #{number} {name}.")
 
 
 async def cmd_target(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Flag a target player: /target home 10"""
-    session = _require_session(update, context)
+    session = await _require_session(update, context)
     if session is None:
         return
     args = context.args or []
@@ -195,17 +195,17 @@ async def cmd_target(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not match:
         await update.message.reply_text("Ese jugador no está en la alineación.")
         return
-    _svc(context).set_target(match[0], True)
+    await _svc(context).set_target(match[0], True)
     await update.message.reply_text(
         f"⭐ {_side_label(side)} #{number} {match[0].name} marcado como objetivo."
     )
 
 
 async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    session = _require_session(update, context)
+    session = await _require_session(update, context)
     if session is None:
         return
-    removed = _svc(context).undo_last(session)
+    removed = await _svc(context).undo_last(session)
     if removed is None:
         await update.message.reply_text("No hay nada que deshacer.")
     else:
@@ -215,7 +215,7 @@ async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # ── media + text capture ────────────────────────────────────────────────
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Lineup image → parse → stage → show confirm keyboard."""
-    session = _require_session(update, context)
+    session = await _require_session(update, context)
     if session is None:
         return
     svc = _svc(context)
@@ -232,15 +232,15 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "nítida, o añade jugadores manualmente con /addplayer."
         )
         return
-    svc.save_roster(session, parsed)
-    session = svc.storage.get_session(session.id)
+    await svc.save_roster(session, parsed)
+    session = await svc.storage.get_session(session.id)
     await update.message.reply_text(
         _roster_text(session), parse_mode="Markdown", reply_markup=_confirm_keyboard()
     )
 
 
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    session = _require_session(update, context)
+    session = await _require_session(update, context)
     if session is None:
         return
     svc = _svc(context)
@@ -255,7 +255,7 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Free text: either a roster correction (pre-confirm) or an observation."""
-    session = _require_session(update, context)
+    session = await _require_session(update, context)
     if session is None:
         return
     text = update.message.text.strip()
@@ -310,13 +310,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     data = query.data
     svc = _svc(context)
     chat_id = update.effective_chat.id
-    session = svc.storage.get_active_session(chat_id)
+    session = await svc.storage.get_active_session(chat_id)
     if session is None:
         await query.edit_message_text("La sesión ya no está activa.")
         return
 
     if data == "confirm_roster":
-        svc.confirm_roster(session)
+        await svc.confirm_roster(session)
         await query.edit_message_text(
             "✅ Alineación confirmada. Ya puedes enviar tus observaciones (voz o texto)."
         )
@@ -340,7 +340,7 @@ async def _resolve_pick(query, context, session: Session, picked: str) -> None:
     if player is None:
         await query.edit_message_text("No se encontró ese jugador.")
         return
-    _svc(context).resolve_disambiguation(session, classified, player)
+    await _svc(context).resolve_disambiguation(session, classified, player)
     await query.edit_message_text(f"✅ Registrada para #{player.number} {player.name}.")
 
 
@@ -364,7 +364,7 @@ async def _apply_roster_correction(
         for p in session.players:
             if p.number == number:
                 p.name = new_name
-        svc.storage.replace_roster(session.id, session.players)
+        await svc.storage.replace_roster(session.id, list(session.players))
         await update.message.reply_text(
             f"✏️ Actualizado #{number} → {new_name}.",
             reply_markup=_confirm_keyboard(),
@@ -381,7 +381,7 @@ async def _apply_roster_correction(
         side = _parse_side(m.group(1))
         number, name = int(m.group(2)), m.group(3)
         position = m.group(4)
-        svc.add_missing_player(session, side, number, name, position)
+        await svc.add_missing_player(session, side, number, name, position)
         await update.message.reply_text(
             f"➕ Añadido {_side_label(side)} #{number} {name}.",
             reply_markup=_confirm_keyboard(),
@@ -401,10 +401,10 @@ async def _apply_roster_correction(
 async def nudge_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Nudge agents who left a session open with no recent activity."""
     svc = _svc(context)
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(minutes=settings.session_nudge_minutes)
-    ).isoformat(timespec="seconds")
-    for session in svc.storage.stale_active_sessions(cutoff):
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=settings.session_nudge_minutes
+    )
+    for session in await svc.storage.stale_active_sessions(cutoff):
         try:
             await context.bot.send_message(
                 session.agent_chat_id,
@@ -413,26 +413,23 @@ async def nudge_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 parse_mode="Markdown",
             )
             # Touch so we don't nudge again immediately.
-            svc.storage.touch_session(session.id)
+            await svc.storage.touch_session(session.id)
         except Exception:  # noqa: BLE001 — best-effort nudge
             logger.exception("nudge failed for session %s", session.id)
 
 
 # ── small utilities ────────────────────────────────────────────────────────
-def _require_session(
+async def _require_session(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> Session | None:
     chat_id = update.effective_chat.id
-    session = _svc(context).storage.get_active_session(chat_id)
-    if session is None:
+    session = await _svc(context).storage.get_active_session(chat_id)
+    if session is None and update.message:
         # Don't block — guide the agent.
-        if update.message:
-            context.application.create_task(
-                update.message.reply_text(
-                    "No hay ninguna sesión activa. "
-                    "Inicia una con `/nuevo Local vs Visitante`.",
-                )
-            )
+        await update.message.reply_text(
+            "No hay ninguna sesión activa. "
+            "Inicia una con `/nuevo Local vs Visitante`.",
+        )
     return session
 
 
@@ -467,7 +464,9 @@ def build_application() -> Application:
     # Fail fast if live-AI mode is selected without the required keys.
     settings.require_ai_keys()
 
-    storage = Storage(settings.database_url)
+    # Storage is stateless (Tortoise manages the connection pool globally),
+    # so it's safe to construct here without opening anything.
+    storage = Storage()
     ai = get_provider()
     service = ScoutingService(storage, ai, settings.confidence_threshold)
 

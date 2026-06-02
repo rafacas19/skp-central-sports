@@ -106,6 +106,11 @@ class Settings:
     webhook_base_url: str
     webhook_secret: str
 
+    # ── REST read API ────────────────────────────────────────────────────
+    # When set, the /sessions read endpoints require this value in X-API-Key.
+    # When empty, those endpoints return 503 (disabled) rather than open.
+    api_key: str
+
     @classmethod
     def from_env(cls) -> "Settings":
         s = cls(
@@ -122,6 +127,7 @@ class Settings:
             # Explicit override wins; otherwise use Render's auto-injected URL.
             webhook_base_url=_https_url("WEBHOOK_BASE_URL", "RENDER_EXTERNAL_URL"),
             webhook_secret=_telegram_secret("WEBHOOK_SECRET"),
+            api_key=os.getenv("API_KEY", ""),
         )
         s.validate()
         return s

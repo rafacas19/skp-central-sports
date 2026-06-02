@@ -1,5 +1,6 @@
 # Render Blueprint — deploy with: Render Dashboard → New → Blueprint → this repo.
-# Provisions a managed Postgres + a web service running the bot in webhook mode.
+# Provisions a managed Postgres + a Dockerized FastAPI web service that hosts the
+# Telegram bot (webhook mode) and the read API.
 # Docs: https://render.com/docs/blueprint-spec
 
 databases:
@@ -11,12 +12,11 @@ databases:
 services:
   - type: web
     name: skp-central-sports
-    runtime: python
+    runtime: docker          # build from the Dockerfile (FastAPI + uvicorn)
+    dockerfilePath: ./Dockerfile
     plan: starter            # webhook mode needs an always-on instance (free spins down)
     region: oregon           # change to your nearest region
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m scouting_bot
-    healthCheckPath: /        # PTB's webhook server answers health probes
+    healthCheckPath: /healthz # FastAPI health endpoint
     autoDeploy: true
     envVars:
       # ── Database: injected from the managed Postgres above ──────────────
@@ -33,6 +33,10 @@ services:
       - key: WEBHOOK_SECRET
         generateValue: true       # Render generates a random secret
       # PORT is set automatically by Render; config.py reads it.
+
+      # ── REST read API auth ──────────────────────────────────────────────
+      - key: API_KEY
+        generateValue: true       # required in X-API-Key for /sessions endpoints
 
       # ── Telegram ───────────────────────────────────────────────────────
       - key: TELEGRAM_BOT_TOKEN
@@ -57,6 +61,5 @@ services:
         value: "0.65"
       - key: SESSION_NUDGE_MINUTES
         value: "120"
-
-      - key: PYTHON_VERSION
-        value: "3.11.14"
+      # Note: Python is pinned by the Dockerfile (3.11.14); no PYTHON_VERSION here.
+      # DB migrations run via entrypoint.sh (aerich upgrade) on each deploy.

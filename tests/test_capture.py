@@ -1,20 +1,21 @@
 import pytest
+import pytest_asyncio
 
 from scouting_bot.ai.base import ParsedPlayer
 
 
-@pytest.fixture
-def session_with_roster(service):
-    sess, _ = service.start_session(1, "Boca", "River", None)
+@pytest_asyncio.fixture
+async def session_with_roster(service):
+    sess, _ = await service.start_session(1, "Boca", "River", None)
     parsed = [
         ParsedPlayer(8, "Vidal", "CM", "home"),
         ParsedPlayer(10, "Sosa", "AM", "home"),
         ParsedPlayer(8, "Mendes", "CM", "away"),  # number clash on purpose
         ParsedPlayer(3, "Romero", "LB", "home"),
     ]
-    service.save_roster(sess, parsed)
-    service.confirm_roster(sess)
-    return service.storage.get_session(sess.id)
+    await service.save_roster(sess, parsed)
+    await service.confirm_roster(sess)
+    return await service.storage.get_session(sess.id)
 
 
 @pytest.mark.asyncio
@@ -39,7 +40,7 @@ async def test_ambiguous_number_triggers_disambiguation(service, session_with_ro
 async def test_disambiguation_resolution_stores_note(service, session_with_roster):
     result = await service.capture_note(session_with_roster, "number 8 slow on the turn")
     chosen = next(p for p in result.candidates if p.name == "Vidal")
-    obs = service.resolve_disambiguation(session_with_roster, result.classified, chosen)
+    obs = await service.resolve_disambiguation(session_with_roster, result.classified, chosen)
     assert obs.player_id == chosen.id
     assert obs.sentiment == "negative"
 
@@ -64,16 +65,16 @@ async def test_team_note_has_no_player(service, session_with_roster):
 @pytest.mark.asyncio
 async def test_corrections(service, session_with_roster):
     await service.capture_note(session_with_roster, "number 10 brilliant finish")
-    flipped = service.flip_last_sentiment(session_with_roster)
+    flipped = await service.flip_last_sentiment(session_with_roster)
     assert flipped == "negative"
-    removed = service.undo_last(session_with_roster)
+    removed = await service.undo_last(session_with_roster)
     assert removed is not None
-    assert service.storage.last_observation(session_with_roster.id) is None
+    assert await service.storage.last_observation(session_with_roster.id) is None
 
 
 @pytest.mark.asyncio
 async def test_roster_gap_add_player(service, session_with_roster):
-    p = service.add_missing_player(session_with_roster, "home", 14, "Gómez", "CB")
+    p = await service.add_missing_player(session_with_roster, "home", 14, "Gómez", "CB")
     assert p.id is not None
-    listed = service.storage.list_players(session_with_roster.id)
+    listed = await service.storage.list_players(session_with_roster.id)
     assert any(pl.name == "Gómez" for pl in listed)

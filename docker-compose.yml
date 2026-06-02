@@ -1,0 +1,47 @@
+# Local development: FastAPI app + Postgres.
+# Render does NOT use this file — it builds the Dockerfile and provisions its own
+# managed Postgres. Compose is for local dev/test convenience only.
+#
+#   docker compose up --build        # run the app at http://localhost:10000
+#   docker compose run --rm api pytest   # run the test suite against the db service
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scouting
+      POSTGRES_PASSWORD: scouting
+      POSTGRES_DB: scouting
+    ports:
+      # Host 5433 → container 5432 (5432 is often already taken locally).
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scouting"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://scouting:scouting@db:5432/scouting
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      USE_MOCK_AI: ${USE_MOCK_AI:-true}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # No WEBHOOK_BASE_URL locally → no webhook registered (use a tunnel if
+      # you want real Telegram delivery in dev). The REST API + healthz still run.
+      WEBHOOK_BASE_URL: ${WEBHOOK_BASE_URL:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      API_KEY: ${API_KEY:-dev-key}
+      PORT: "10000"
+    ports:
+      - "10000:10000"
+
+volumes:
+  pgdata:

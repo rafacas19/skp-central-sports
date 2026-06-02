@@ -1,14 +1,19 @@
-"""Product-level data model (dataclasses).
+"""Tortoise ORM models — the persisted domain model.
 
-Mirrors the "Core Concepts" section of the product outline:
-Session → Match → Team/Roster → Player → Observation.
+Mirrors the "Core Concepts" of the product outline:
+Session → Team/Roster → Player → Observation.
 
-These are plain dataclasses; persistence lives in storage.py.
+These models are the single source of truth for the schema (managed by Aerich).
+`report.py` and `service.py` operate on already-fetched instances, so the
+storage layer prefetches `players`/`observations` before handing a Session to
+them — letting that code read `session.players` / `session.observations` as
+plain lists without awaiting.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from tortoise import fields
+from tortoise.models import Model
 
 # Session lifecycle states.
 SESSION_ACTIVE = "active"
@@ -18,47 +23,70 @@ HOME = "home"
 AWAY = "away"
 
 
-@dataclass
-class Player:
-    """A roster entry within a single match (no cross-match identity in MVP)."""
-
-    id: int | None
-    session_id: int
-    side: str  # HOME | AWAY
-    number: int | None
-    name: str
-    position: str | None
-    is_target: bool = False
-
-
-@dataclass
-class Observation:
-    """The atomic scouting note."""
-
-    id: int | None
-    session_id: int
-    player_id: int | None  # None ⇒ team-level note
-    side: str | None  # set for team-level notes; mirrors player side otherwise
-    sentiment: str | None  # positive | negative ; None for free-text team notes
-    skill_category: str | None
-    raw_quote: str
-    created_at: str  # ISO-8601 timestamp
-
-
-@dataclass
-class Session:
+class Session(Model):
     """One match-scouting episode owned by one agent."""
 
-    id: int | None
-    agent_chat_id: int
-    home_team: str
-    away_team: str
-    label: str | None  # free-text competition/date label
-    state: str = SESSION_ACTIVE
-    roster_confirmed: bool = False
-    created_at: str = ""
-    last_activity_at: str = ""
-    ended_at: str | None = None
+    id = fields.IntField(primary_key=True)
+    agent_chat_id = fields.BigIntField()
+    home_team = fields.TextField()
+    away_team = fields.TextField()
+    label = fields.TextField(null=True)  # free-text competition/date label
+    state = fields.CharField(max_length=16, default=SESSION_ACTIVE)
+    roster_confirmed = fields.BooleanField(default=False)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    last_activity_at = fields.DatetimeField(auto_now_add=True)
+    ended_at = fields.DatetimeField(null=True)
 
-    players: list[Player] = field(default_factory=list)
-    observations: list[Observation] = field(default_factory=list)
+    players: fields.ReverseRelation["Player"]
+    observations: fields.ReverseRelation["Observation"]
+
+    class Meta:
+        table = "sessions"
+        indexes = (("agent_chat_id", "state"),)
+
+    def __str__(self) -> str:
+        return f"Session({self.id}: {self.home_team} vs {self.away_team})"
+
+
+class Player(Model):
+    """A roster entry within a single match (no cross-match identity in MVP)."""
+
+    id = fields.IntField(primary_key=True)
+    session: fields.ForeignKeyRelation[Session] = fields.ForeignKeyField(
+        "models.Session", related_name="players", on_delete=fields.CASCADE
+    )
+    side = fields.CharField(max_length=8)  # HOME | AWAY
+    number = fields.IntField(null=True)
+    name = fields.TextField()
+    position = fields.CharField(max_length=16, null=True)
+    is_target = fields.BooleanField(default=False)
+
+    class Meta:
+        table = "players"
+
+    @property
+    def session_id_value(self) -> int:
+        # Tortoise exposes the FK id as `session_id` automatically; this is a
+        # readable alias used in a couple of places.
+        return self.session_id  # type: ignore[attr-defined]
+
+
+class Observation(Model):
+    """The atomic scouting note."""
+
+    id = fields.IntField(primary_key=True)
+    session: fields.ForeignKeyRelation[Session] = fields.ForeignKeyField(
+        "models.Session", related_name="observations", on_delete=fields.CASCADE
+    )
+    # player is nullable: a null player_id ⇒ a team-level note.
+    player: fields.ForeignKeyNullableRelation[Player] = fields.ForeignKeyField(
+        "models.Player", related_name="observations", null=True, on_delete=fields.SET_NULL
+    )
+    side = fields.CharField(max_length=8, null=True)
+    sentiment = fields.CharField(max_length=16, null=True)
+    skill_category = fields.CharField(max_length=32, null=True)
+    raw_quote = fields.TextField()
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "observations"
