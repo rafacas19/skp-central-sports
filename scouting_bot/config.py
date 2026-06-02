@@ -49,6 +49,21 @@ def _int(name: str, default: int) -> int:
         raise ConfigError(f"{name} must be an integer, got {raw!r}") from exc
 
 
+def _telegram_secret(name: str) -> str:
+    """Read a webhook secret and coerce it to Telegram's allowed charset.
+
+    Telegram restricts the webhook secret_token to A-Z a-z 0-9 _ - (1-256 chars).
+    Render's generateValue can include other characters (e.g. base64 padding),
+    which Telegram rejects with 'Secret token contains unallowed characters'.
+    Strip anything outside the allowed set so any generated value just works.
+    """
+    import string
+
+    allowed = set(string.ascii_letters + string.digits + "_-")
+    raw = os.getenv(name, "")
+    return "".join(c for c in raw if c in allowed)[:256]
+
+
 def _https_url(*names: str) -> str:
     """Read the first set base URL from `names`, tolerating a bare hostname.
 
@@ -106,7 +121,7 @@ class Settings:
             port=_int("PORT", 10000),
             # Explicit override wins; otherwise use Render's auto-injected URL.
             webhook_base_url=_https_url("WEBHOOK_BASE_URL", "RENDER_EXTERNAL_URL"),
-            webhook_secret=os.getenv("WEBHOOK_SECRET", ""),
+            webhook_secret=_telegram_secret("WEBHOOK_SECRET"),
         )
         s.validate()
         return s
