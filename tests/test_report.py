@@ -1,6 +1,6 @@
 import pytest
 
-from scouting_bot.report import build_markdown, build_summary
+from scouting_bot.report import build_markdown, build_pdf, build_summary
 
 
 @pytest.mark.asyncio
@@ -44,6 +44,12 @@ async def test_full_match_report(service):
     # Sosa got 2 positive notes.
     assert "2 positivas" in md or "👍 2" in md
 
+    # PDF renders to valid, non-trivial PDF bytes.
+    pdf = build_pdf(ended)
+    assert isinstance(pdf, bytes)
+    assert pdf.startswith(b"%PDF-")
+    assert len(pdf) > 1000
+
 
 @pytest.mark.asyncio
 async def test_report_handles_empty_session(service):
@@ -52,3 +58,6 @@ async def test_report_handles_empty_session(service):
     # Should not raise even with no roster / no notes.
     assert "A" in build_summary(ended)
     assert "# Informe del partido" in build_markdown(ended)
+    # PDF generation must not raise on an empty session either.
+    pdf = build_pdf(ended)
+    assert pdf.startswith(b"%PDF-")

@@ -37,7 +37,7 @@ from .ai import get_provider
 from .ai.base import ClassifiedNote, PlayerMatch
 from .config import settings
 from .models import HOME, Player, Session
-from .report import build_markdown, build_summary
+from .report import build_pdf, build_summary
 from .service import ScoutingService
 from .storage import Storage
 from .taxonomy import SENTIMENT_POSITIVE
@@ -142,11 +142,11 @@ async def cmd_endmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     summary = build_summary(ended)
     await update.message.reply_text(summary, parse_mode="Markdown")
 
-    md = build_markdown(ended)
-    buf = io.BytesIO(md.encode("utf-8"))
+    pdf = build_pdf(ended)
+    buf = io.BytesIO(pdf)
     fname = f"informe_{ended.home_team}_vs_{ended.away_team}".replace(" ", "_")
     await update.message.reply_document(
-        document=InputFile(buf, filename=f"{fname}.md")
+        document=InputFile(buf, filename=f"{fname}.pdf")
     )
 
 
