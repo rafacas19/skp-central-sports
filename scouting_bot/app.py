@@ -15,6 +15,7 @@ PTB runs *inside* this process (no webhook server of its own); we call
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
@@ -29,6 +30,36 @@ from .storage import Storage
 logger = logging.getLogger(__name__)
 
 _ALLOWED_UPDATES = ["message", "callback_query"]
+
+
+def _webhook_url() -> str:
+    return f"{settings.webhook_base_url}/telegram/{settings.telegram_bot_token}"
+
+
+async def _ensure_webhook(application, *, drop_pending: bool) -> None:
+    """Register the webhook with Telegram if it isn't already pointing at us.
+
+    Idempotent and cheap: checks getWebhookInfo first and only calls set_webhook
+    when the registered URL differs. Used both at startup and as a self-healing
+    check from /healthz, so a cleared/lost webhook (e.g. a rolling-deploy race)
+    recovers automatically without manual intervention.
+    """
+    if not settings.use_webhook:
+        return
+    want = _webhook_url()
+    try:
+        info = await application.bot.get_webhook_info()
+        if info.url == want:
+            return
+    except Exception:  # noqa: BLE001 — if the check fails, just try to set it
+        pass
+    await application.bot.set_webhook(
+        url=want,
+        secret_token=settings.webhook_secret or None,
+        allowed_updates=_ALLOWED_UPDATES,
+        drop_pending_updates=drop_pending,
+    )
+    logger.info("Webhook (re)registered: %s", want)
 
 
 @asynccontextmanager
@@ -53,16 +84,9 @@ async def lifespan(app: FastAPI):
         app.state.telegram_app = application
 
         if settings.use_webhook:
-            webhook_url = (
-                f"{settings.webhook_base_url}/telegram/{settings.telegram_bot_token}"
-            )
-            await application.bot.set_webhook(
-                url=webhook_url,
-                secret_token=settings.webhook_secret or None,
-                allowed_updates=_ALLOWED_UPDATES,
-                drop_pending_updates=True,
-            )
-            logger.info("Webhook registered: %s", webhook_url)
+            # drop_pending_updates=True on first boot: skip a possibly-large
+            # backlog accumulated while the bot was down.
+            await _ensure_webhook(application, drop_pending=True)
         else:
             logger.warning(
                 "WEBHOOK_BASE_URL not set — no webhook registered. The bot will "
@@ -135,10 +159,31 @@ async def telegram_webhook(secret: str, request: Request):
     return {"ok": True}
 
 
-# ── Health check ───────────────────────────────────────────────────────────
+# ── Health check (doubles as a webhook watchdog) ─────────────────────────
+# Throttle the watchdog so we don't call Telegram on every probe (Render hits
+# /healthz often). At most once per this many seconds.
+_WATCHDOG_INTERVAL_S = 60.0
+_last_watchdog_check = 0.0
+
+
 @app.get("/healthz")
-async def healthz():
-    return {"status": "ok"}
+async def healthz(request: Request):
+    """Liveness probe. Render hits this frequently, so we also use it to keep
+    the Telegram webhook registered: if it ever gets cleared (e.g. a rolling
+    deploy where the old instance deleted it), the next health check re-asserts
+    it automatically — no manual setWebhook needed. Throttled to once a minute.
+    """
+    global _last_watchdog_check
+    application = request.app.state.telegram_app
+    if application is not None and settings.use_webhook:
+        now = time.monotonic()
+        if now - _last_watchdog_check >= _WATCHDOG_INTERVAL_S:
+            _last_watchdog_check = now
+            try:
+                await _ensure_webhook(application, drop_pending=False)
+            except Exception:  # noqa: BLE001 — never let the watchdog fail the probe
+                logger.exception("healthz webhook re-assert failed")
+    return {"status": "ok", "bot": application is not None}
 
 
 # ── Read API (X-API-Key) ─────────────────────────────────────────────────
