@@ -155,6 +155,23 @@ async def telegram_webhook(secret: str, request: Request):
         )
     data = await request.json()
     update = Update.de_json(data, application.bot)
+
+    # Concise per-update log so the Render logs show what actually arrived
+    # (type + chat), not just "POST /telegram 200". Handler errors are logged
+    # separately by the PTB error handler (bot.on_error).
+    chat = update.effective_chat.id if update and update.effective_chat else "?"
+    if update and update.message:
+        kind = "text" if update.message.text else (
+            "photo" if update.message.photo else (
+                "voice" if (update.message.voice or update.message.audio) else "message"
+            )
+        )
+    elif update and update.callback_query:
+        kind = f"callback:{update.callback_query.data}"
+    else:
+        kind = "other"
+    logger.info("update %s from chat %s (%s)", getattr(update, "update_id", "?"), chat, kind)
+
     await application.process_update(update)
     return {"ok": True}
 

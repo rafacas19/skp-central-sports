@@ -457,6 +457,30 @@ def _parse_match_arg(arg: str) -> tuple[str, str, str | None]:
     return parts[0].strip(), parts[1].strip(), label
 
 
+# ── error handler ────────────────────────────────────────────────────────
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log any exception raised while handling an update.
+
+    Without this, a handler exception (e.g. an AI call failing) is swallowed by
+    PTB — the webhook still returns 200 and the user just sees silence, with no
+    trace in the logs. This makes that failure visible and tells the user.
+    """
+    logger.exception(
+        "Error handling update %s",
+        getattr(update, "update_id", update),
+        exc_info=context.error,
+    )
+    # Best-effort: let the agent know something went wrong rather than ghosting.
+    try:
+        if isinstance(update, Update) and update.effective_message:
+            await update.effective_message.reply_text(
+                "⚠️ Ups, algo falló procesando ese mensaje. Inténtalo de nuevo; "
+                "si persiste, avisa al administrador."
+            )
+    except Exception:  # noqa: BLE001 — never let the error handler itself raise
+        logger.exception("failed to notify user about the error")
+
+
 # ── app factory ────────────────────────────────────────────────────────────
 def build_application() -> Application:
     if not settings.telegram_bot_token:
@@ -486,6 +510,9 @@ def build_application() -> Application:
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, on_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(CallbackQueryHandler(on_callback))
+
+    # Surface (don't swallow) exceptions raised inside any handler.
+    app.add_error_handler(on_error)
 
     if app.job_queue is not None:
         app.job_queue.run_repeating(nudge_job, interval=600, first=600)
