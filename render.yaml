@@ -26,12 +26,10 @@ services:
           property: connectionString
 
       # ── Webhook runtime ────────────────────────────────────────────────
-      # RENDER_EXTERNAL_URL is provided by Render; we reuse it as the webhook base.
-      - key: WEBHOOK_BASE_URL
-        fromService:
-          type: web
-          name: skp-central-sports
-          property: host          # resolves to e.g. skp-central-sports.onrender.com
+      # WEBHOOK_BASE_URL is intentionally NOT declared here: config.py falls back
+      # to RENDER_EXTERNAL_URL, which Render auto-injects with the full https URL.
+      # (Avoids the first-deploy race where a fromService host isn't resolvable
+      # yet, which would silently start the bot in polling mode.)
       - key: WEBHOOK_SECRET
         generateValue: true       # Render generates a random secret
       # PORT is set automatically by Render; config.py reads it.

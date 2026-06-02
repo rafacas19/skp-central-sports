@@ -49,18 +49,21 @@ def _int(name: str, default: int) -> int:
         raise ConfigError(f"{name} must be an integer, got {raw!r}") from exc
 
 
-def _https_url(name: str) -> str:
-    """Read a base URL, tolerating a bare hostname.
+def _https_url(*names: str) -> str:
+    """Read the first set base URL from `names`, tolerating a bare hostname.
 
-    Render's `fromService property: host` yields just the hostname (no scheme),
-    so prepend https:// when missing. Empty stays empty (→ polling mode).
+    Falls back across names in order — used so an explicit WEBHOOK_BASE_URL wins,
+    but Render's auto-injected RENDER_EXTERNAL_URL is used when it isn't set. A
+    bare hostname (no scheme) gets https:// prepended. All empty → "" (polling).
     """
-    raw = os.getenv(name, "").strip().rstrip("/")
-    if not raw:
-        return ""
-    if raw.startswith(("http://", "https://")):
-        return raw
-    return f"https://{raw}"
+    for name in names:
+        raw = os.getenv(name, "").strip().rstrip("/")
+        if not raw:
+            continue
+        if raw.startswith(("http://", "https://")):
+            return raw
+        return f"https://{raw}"
+    return ""
 
 
 @dataclass(frozen=True)
@@ -101,7 +104,8 @@ class Settings:
             confidence_threshold=_float("CONFIDENCE_THRESHOLD", 0.65),
             session_nudge_minutes=_int("SESSION_NUDGE_MINUTES", 120),
             port=_int("PORT", 10000),
-            webhook_base_url=_https_url("WEBHOOK_BASE_URL"),
+            # Explicit override wins; otherwise use Render's auto-injected URL.
+            webhook_base_url=_https_url("WEBHOOK_BASE_URL", "RENDER_EXTERNAL_URL"),
             webhook_secret=os.getenv("WEBHOOK_SECRET", ""),
         )
         s.validate()
