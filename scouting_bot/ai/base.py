@@ -54,10 +54,16 @@ class AIProvider(Protocol):
         """Lineup image → list of players for both teams."""
         ...
 
-    async def classify_note(
+    async def classify_notes(
         self,
         text: str,
         roster: list[ParsedPlayer],
-    ) -> ClassifiedNote:
-        """Free text → structured observation, resolving the player against the roster."""
+    ) -> list[ClassifiedNote]:
+        """Free text → one or more structured observations.
+
+        A single message may qualify several players ("#10 great vision but #4
+        too slow") or none. Returns one ClassifiedNote per distinct player/team
+        observation found, in reading order; an empty list when nothing is
+        classifiable. Each note resolves its player against the roster.
+        """
         ...

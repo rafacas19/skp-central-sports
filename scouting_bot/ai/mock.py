@@ -5,10 +5,11 @@ of the bot flow:
 
   - parse_lineup: returns a fixed two-team roster (so the confirm step is testable)
   - transcribe_voice: returns a deterministic placeholder transcript
-  - classify_note: actually parses the text — extracts jersey number / name /
-    position references, detects sentiment from keywords, maps a skill category,
-    and lowers confidence when the player reference is ambiguous (so the
-    "ask only when unsure" path triggers for real).
+  - classify_notes: actually parses the text — splits a message that qualifies
+    several players, then per fragment extracts jersey number / name / position
+    references, detects sentiment from keywords, maps a skill category, and
+    lowers confidence when the player reference is ambiguous (so the "ask only
+    when unsure" path triggers for real).
 
 Swap to RealAIProvider (Claude + Whisper) by setting USE_MOCK_AI=false.
 """
@@ -20,6 +21,8 @@ import re
 from ..taxonomy import (
     SENTIMENT_NEGATIVE,
     SENTIMENT_POSITIVE,
+    name_matches,
+    normalize_name,
     normalize_skill,
 )
 from .base import AIProvider, ClassifiedNote, ParsedPlayer, PlayerMatch
@@ -86,45 +89,74 @@ class MockAIProvider(AIProvider):
     async def parse_lineup(self, image_bytes: bytes, mime_type: str) -> list[ParsedPlayer]:
         return list(_DEMO_ROSTER)
 
-    async def classify_note(
+    async def classify_notes(
         self, text: str, roster: list[ParsedPlayer]
-    ) -> ClassifiedNote:
-        lowered = text.lower()
+    ) -> list[ClassifiedNote]:
+        # A single message may qualify several players. Split into fragments only
+        # when ≥2 of them carry their own player reference; otherwise treat the
+        # whole message as one note (preserving the single-note behavior).
+        fragments = _split_multi_player(text, roster)
+        return [_classify_one(frag, roster) for frag in fragments]
 
-        # Team-level note? (no player reference + team keyword)
-        number = _extract_number(lowered)
-        name_match = _match_name(lowered, roster)
-        position = _extract_position(lowered)
-        is_team = (
-            number is None
-            and name_match is None
-            and any(h in lowered for h in _TEAM_NOTE_HINTS)
-        )
 
-        if is_team:
-            return ClassifiedNote(
-                raw_quote=text,
-                is_team_note=True,
-                sentiment=None,
-                skill_category=None,
-                player_ref=None,
-                confidence=0.9,
-            )
+def _classify_one(text: str, roster: list[ParsedPlayer]) -> ClassifiedNote:
+    lowered = text.lower()
 
-        sentiment = _detect_sentiment(lowered)
-        skill = _detect_skill(lowered)
+    # Team-level note? (no player reference + team keyword)
+    number = _extract_number(lowered)
+    name_match = _match_name(lowered, roster)
+    position = _extract_position(lowered)
+    is_team = (
+        number is None
+        and name_match is None
+        and any(h in lowered for h in _TEAM_NOTE_HINTS)
+    )
 
-        # Resolve player + score confidence.
-        ref, confidence = _resolve_player(number, name_match, position, roster)
-
+    if is_team:
         return ClassifiedNote(
             raw_quote=text,
-            is_team_note=False,
-            sentiment=sentiment,
-            skill_category=skill,
-            player_ref=ref,
-            confidence=confidence,
+            is_team_note=True,
+            sentiment=None,
+            skill_category=None,
+            player_ref=None,
+            confidence=0.9,
         )
+
+    sentiment = _detect_sentiment(lowered)
+    skill = _detect_skill(lowered)
+
+    # Resolve player + score confidence.
+    ref, confidence = _resolve_player(number, name_match, position, roster)
+
+    return ClassifiedNote(
+        raw_quote=text,
+        is_team_note=False,
+        sentiment=sentiment,
+        skill_category=skill,
+        player_ref=ref,
+        confidence=confidence,
+    )
+
+
+# Connectors that tend to separate observations about different players.
+_SPLIT_RE = re.compile(r"\s+but\s+|\s+pero\s+|;|,", re.IGNORECASE)
+
+
+def _split_multi_player(text: str, roster: list[ParsedPlayer]) -> list[str]:
+    """Split a message into per-player fragments, but only if it clearly covers
+    more than one player. Returns [text] unchanged when it's a single note."""
+    parts = [p.strip() for p in _SPLIT_RE.split(text) if p.strip()]
+    if len(parts) < 2:
+        return [text]
+    # A fragment "has a player" if it names or numbers one.
+    with_player = [
+        p
+        for p in parts
+        if _extract_number(p.lower()) is not None or _match_name(p.lower(), roster)
+    ]
+    if len(with_player) < 2:
+        return [text]
+    return parts
 
 
 # ── text parsing helpers ────────────────────────────────────────────────
@@ -137,10 +169,27 @@ def _extract_number(text: str) -> int | None:
 
 
 def _match_name(text: str, roster: list[ParsedPlayer]) -> ParsedPlayer | None:
+    """Find the roster player a note's text refers to by name.
+
+    Scouts use surnames, drop accents, and mistype — so match each word of the
+    note against each player's name fuzzily (shared with the real path via
+    taxonomy.name_matches), not by raw substring. Exact (accent-insensitive)
+    matches win over fuzzy ones to avoid a typo stealing a clean reference.
+    """
+    words = re.findall(r"[^\W\d_]+", text, flags=re.UNICODE)  # word tokens, no digits
+    exact: ParsedPlayer | None = None
+    fuzzy: ParsedPlayer | None = None
     for p in roster:
-        if p.name and p.name.lower() in text:
-            return p
-    return None
+        if not p.name:
+            continue
+        name_tokens = {normalize_name(t) for t in p.name.split()}
+        for w in words:
+            nw = normalize_name(w)
+            if nw in name_tokens or nw == normalize_name(p.name):
+                exact = exact or p
+            elif name_matches(w, p.name):
+                fuzzy = fuzzy or p
+    return exact or fuzzy
 
 
 def _extract_position(text: str) -> str | None:

@@ -34,10 +34,9 @@ from telegram.ext import (
 )
 
 from .ai import get_provider
-from .ai.base import ClassifiedNote, PlayerMatch
 from .config import settings
 from .models import HOME, Player, Session
-from .report import build_pdf, build_summary
+from .report import build_csv, build_summary
 from .service import ScoutingService
 from .storage import Storage
 from .taxonomy import SENTIMENT_POSITIVE
@@ -45,8 +44,9 @@ from .taxonomy import SENTIMENT_POSITIVE
 logger = logging.getLogger(__name__)
 
 # Keys for per-chat transient state (bot_data / user_data).
-_PENDING_NOTE = "pending_ambiguous_note"  # ClassifiedNote awaiting disambiguation
-_PENDING_CANDIDATES = "pending_candidates"  # list[Player]
+# One message can produce several ambiguous notes, so we hold a QUEUE of them and
+# resolve one at a time: a list of (ClassifiedNote, list[Player]) tuples.
+_PENDING_QUEUE = "pending_disambiguation_queue"
 
 
 # ── helpers ─────────────────────────────────────────────────────────────
@@ -64,7 +64,8 @@ def _roster_text(session: Session) -> str:
                 pos = f" ({p.position})" if p.position else ""
                 lines.append(f"  {num} {p.name}{pos}")
         lines.append("")
-    lines.append("Pulsa *Confirmar* si es correcta, o envía correcciones por texto")
+    lines.append("Pulsa *Confirmar* si es correcta. Si falta un equipo, envía otra")
+    lines.append("foto y se añadirá. También puedes corregir por texto")
     lines.append("(p. ej. `#10 es Pérez` o `visitante #8 posición CM`).")
     return "\n".join(lines)
 
@@ -123,7 +124,9 @@ async def cmd_newmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(
         f"🆕 Sesión iniciada: *{home} vs {away}*"
         + (f"\n_{label}_" if label else "")
-        + "\n\n📸 Ahora envía una *foto de la alineación* de ambos equipos.",
+        + "\n\n📸 Ahora envía una *foto de la alineación* (puedes mandar una por "
+        "equipo). O, si solo quieres seguir a algún jugador, escríbelos con "
+        "`/jugadores local: 10 Messi DC, 7 Di María; visitante: 5 Ramos`.",
         parse_mode="Markdown",
     )
 
@@ -142,11 +145,45 @@ async def cmd_endmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     summary = build_summary(ended)
     await update.message.reply_text(summary, parse_mode="Markdown")
 
-    pdf = build_pdf(ended)
-    buf = io.BytesIO(pdf)
+    csv_bytes = build_csv(ended)
+    buf = io.BytesIO(csv_bytes)
     fname = f"informe_{ended.home_team}_vs_{ended.away_team}".replace(" ", "_")
     await update.message.reply_document(
-        document=InputFile(buf, filename=f"{fname}.pdf")
+        document=InputFile(buf, filename=f"{fname}.csv")
+    )
+
+
+async def cmd_manual_lineup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manual lineup: stage a partial roster from a free-text list, e.g.
+
+        /jugadores local: 10 Messi DC, 7 Di María; visitante: 5 Ramos
+
+    For when the scout only wants to watch one or two players, not the whole
+    team. Players are staged (appended) and the scout can confirm a partial
+    roster — even a single player — then start capturing.
+    """
+    session = await _require_session(update, context)
+    if session is None:
+        return
+    # Parse from the raw text, not context.args: arg-splitting on spaces would
+    # break multi-word names ("Di María").
+    raw = update.message.text or ""
+    raw = raw.split(maxsplit=1)[1] if " " in raw.strip() else ""
+    entries = _parse_manual_lineup(raw)
+    if not entries:
+        await update.message.reply_text(
+            "Uso: `/jugadores local: 10 Messi DC, 7 Di María; visitante: 5 Ramos`\n"
+            "El número y la posición son opcionales (`local: Messi`).",
+            parse_mode="Markdown",
+        )
+        return
+
+    svc = _svc(context)
+    for side, number, name, position in entries:
+        await svc.add_missing_player(session, side, number, name, position)
+    session = await svc.storage.get_session(session.id)
+    await update.message.reply_text(
+        _roster_text(session), parse_mode="Markdown", reply_markup=_confirm_keyboard()
     )
 
 
@@ -214,7 +251,12 @@ async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ── media + text capture ────────────────────────────────────────────────
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Lineup image → parse → stage → show confirm keyboard."""
+    """Lineup image → parse → MERGE into the staged roster → show confirm keyboard.
+
+    A lineup may arrive across several photos (one team each). Each photo before
+    confirmation is merged into what's already staged, so a second photo adds the
+    other team instead of wiping the first.
+    """
     session = await _require_session(update, context)
     if session is None:
         return
@@ -232,7 +274,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "nítida, o añade jugadores manualmente con /addplayer."
         )
         return
-    await svc.save_roster(session, parsed)
+    await svc.merge_roster(session, parsed)
     session = await svc.storage.get_session(session.id)
     await update.message.reply_text(
         _roster_text(session), parse_mode="Markdown", reply_markup=_confirm_keyboard()
@@ -275,29 +317,61 @@ async def _handle_capture(
     text: str,
 ) -> None:
     svc = _svc(context)
-    result = await svc.capture_note(session, text)
+    results = await svc.capture_notes(session, text)
 
-    if not result.needs_disambiguation:
-        # Confident note (or team note) — lightweight silent ack.
-        obs = result.observation
-        if result.classified.is_team_note:
-            await update.message.reply_text("📝 ✅", reply_to_message_id=update.message.message_id)
-        else:
-            mark = "👍" if obs and obs.sentiment == SENTIMENT_POSITIVE else "👎"
-            await update.message.reply_text("✅" + mark)
+    if not results:
+        await update.message.reply_text(
+            "🤔 No pude identificar ninguna observación en ese mensaje. "
+            "Inténtalo de nuevo, mencionando al jugador por nombre o número."
+        )
         return
 
-    # Ambiguous → ask the agent (only when unsure).
-    context.user_data[_PENDING_NOTE] = result.classified
-    context.user_data[_PENDING_CANDIDATES] = result.candidates
-    if result.candidates:
-        await update.message.reply_text(
-            f"🤔 ¿A quién te refieres? \"{text}\"",
-            reply_markup=_candidate_keyboard(result.candidates),
+    # Confident notes (player or team) are already stored — acknowledge the count.
+    stored = [r for r in results if not r.needs_disambiguation]
+    if stored:
+        n = len(stored)
+        if n == 1 and stored[0].classified.is_team_note:
+            await update.message.reply_text(
+                "📝 ✅", reply_to_message_id=update.message.message_id
+            )
+        elif n == 1:
+            obs = stored[0].observation
+            mark = "👍" if obs and obs.sentiment == SENTIMENT_POSITIVE else "👎"
+            await update.message.reply_text("✅" + mark)
+        else:
+            await update.message.reply_text(f"✅ {n} notas registradas")
+
+    # Ambiguous notes are queued and asked one at a time (only when unsure).
+    ambiguous = [(r.classified, r.candidates) for r in results if r.needs_disambiguation]
+    if ambiguous:
+        queue = context.user_data.setdefault(_PENDING_QUEUE, [])
+        was_empty = not queue
+        queue.extend(ambiguous)
+        if was_empty:
+            await _ask_next_pending(update.effective_chat.id, context)
+
+
+async def _ask_next_pending(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the disambiguation prompt for the note at the head of the queue.
+
+    Sends a fresh message (works whether triggered by an incoming note or after a
+    previous pick was finalized). Leaves the head on the queue until it's answered.
+    """
+    queue = context.user_data.get(_PENDING_QUEUE, [])
+    if not queue:
+        return
+    classified, candidates = queue[0]
+    quote = classified.raw_quote
+    if candidates:
+        await context.bot.send_message(
+            chat_id,
+            f"🤔 ¿A quién te refieres? \"{quote}\"",
+            reply_markup=_candidate_keyboard(candidates),
         )
     else:
-        await update.message.reply_text(
-            f"🤔 No pude identificar de qué jugador habla \"{text}\". "
+        await context.bot.send_message(
+            chat_id,
+            f"🤔 No pude identificar de qué jugador habla \"{quote}\". "
             "Responde con un número (p. ej. `#8`) o un nombre.",
             parse_mode="Markdown",
         )
@@ -327,21 +401,30 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def _resolve_pick(query, context, session: Session, picked: str) -> None:
-    classified: ClassifiedNote | None = context.user_data.pop(_PENDING_NOTE, None)
-    candidates: list[Player] = context.user_data.pop(_PENDING_CANDIDATES, [])
-    if classified is None:
+    queue: list = context.user_data.get(_PENDING_QUEUE, [])
+    if not queue:
         await query.edit_message_text("No hay nada pendiente.")
         return
+    classified, candidates = queue[0]
+
     if picked == "skip":
         await query.edit_message_text("🚫 Omitida — nota descartada.")
-        return
+    else:
+        player = next((p for p in candidates if str(p.id) == picked), None)
+        if player is None:
+            await query.edit_message_text("No se encontró ese jugador.")
+            return
+        await _svc(context).resolve_disambiguation(session, classified, player)
+        await query.edit_message_text(
+            f"✅ Registrada para #{player.number} {player.name}."
+        )
 
-    player = next((p for p in candidates if str(p.id) == picked), None)
-    if player is None:
-        await query.edit_message_text("No se encontró ese jugador.")
-        return
-    await _svc(context).resolve_disambiguation(session, classified, player)
-    await query.edit_message_text(f"✅ Registrada para #{player.number} {player.name}.")
+    # Done with the head; advance the queue (a fresh prompt for the next, if any).
+    queue.pop(0)
+    if queue:
+        await _ask_next_pending(query.message.chat_id, context)
+    else:
+        context.user_data.pop(_PENDING_QUEUE, None)
 
 
 # ── roster correction parsing ─────────────────────────────────────────────
@@ -457,6 +540,66 @@ def _parse_match_arg(arg: str) -> tuple[str, str, str | None]:
     return parts[0].strip(), parts[1].strip(), label
 
 
+def _parse_manual_lineup(raw: str) -> list[tuple[str, int | None, str, str | None]]:
+    """Parse a free-text manual lineup into (side, number, name, position) tuples.
+
+        'local: 10 Messi DC, 7 Di María; visitante: 5 Ramos'
+        → [('home', 10, 'Messi', 'DC'), ('home', 7, 'Di María', None),
+           ('away', 5, 'Ramos', None)]
+
+    Pure (no Telegram/DB), so it's unit-testable on its own. Rules:
+      - ';' separates side-segments; ',' separates players within a segment.
+      - A 'side:' prefix (local/visitante/home/away) switches the current side;
+        entries before any prefix default to home.
+      - Per entry: an optional leading '#?number', then the name, then an
+        optional trailing 2–3 letter UPPERCASE position token.
+    """
+    import re
+
+    entries: list[tuple[str, int | None, str, str | None]] = []
+    side = HOME
+    for segment in raw.split(";"):
+        segment = segment.strip()
+        if not segment:
+            continue
+        m = re.match(r"(local|visitante|home|away)\s*:\s*(.*)$", segment, re.IGNORECASE)
+        if m:
+            side = _parse_side(m.group(1))
+            body = m.group(2)
+        else:
+            body = segment
+        for chunk in body.split(","):
+            parsed = _parse_player_chunk(chunk)
+            if parsed is not None:
+                number, name, position = parsed
+                entries.append((side, number, name, position))
+    return entries
+
+
+def _parse_player_chunk(chunk: str) -> tuple[int | None, str, str | None] | None:
+    """Parse one '10 Messi DC' style entry → (number, name, position) or None."""
+    import re
+
+    text = chunk.strip()
+    if not text:
+        return None
+    number = None
+    m = re.match(r"#?(\d{1,2})\s+(.*)$", text)
+    if m:
+        number = int(m.group(1))
+        text = m.group(2).strip()
+    position = None
+    # A trailing 2–3 letter UPPERCASE token is the position (DC, CB, GK…).
+    m = re.match(r"(.*\S)\s+([A-ZÁÉÍÓÚÑ]{2,3})$", text)
+    if m and m.group(1).strip():
+        text = m.group(1).strip()
+        position = m.group(2)
+    name = text.strip()
+    if not name:
+        return None
+    return number, name, position
+
+
 # ── error handler ────────────────────────────────────────────────────────
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log any exception raised while handling an update.
@@ -482,6 +625,33 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ── app factory ────────────────────────────────────────────────────────────
+def register_handlers(app: Application) -> None:
+    """Register every command/message/callback handler + the error handler.
+
+    Extracted so the E2E test harness builds an Application with exactly the same
+    handler set as production, without the wiring drifting between them. The job
+    queue (auto-nudge) is intentionally NOT registered here — only the request
+    handlers — so tests don't spawn the periodic nudge job.
+    """
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("help", cmd_start))
+    # Primary command names are Spanish; English names kept as hidden aliases.
+    app.add_handler(CommandHandler(["nuevo", "newmatch"], cmd_newmatch))
+    app.add_handler(CommandHandler(["fin", "endmatch"], cmd_endmatch))
+    app.add_handler(CommandHandler(["jugadores", "lineup"], cmd_manual_lineup))
+    app.add_handler(CommandHandler("addplayer", cmd_addplayer))
+    app.add_handler(CommandHandler("target", cmd_target))
+    app.add_handler(CommandHandler("undo", cmd_undo))
+
+    app.add_handler(MessageHandler(filters.PHOTO, on_photo))
+    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, on_voice))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.add_handler(CallbackQueryHandler(on_callback))
+
+    # Surface (don't swallow) exceptions raised inside any handler.
+    app.add_error_handler(on_error)
+
+
 def build_application() -> Application:
     if not settings.telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not set (see .env.example)")
@@ -497,22 +667,7 @@ def build_application() -> Application:
     app = Application.builder().token(settings.telegram_bot_token).build()
     app.bot_data["service"] = service
 
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("help", cmd_start))
-    # Primary command names are Spanish; English names kept as hidden aliases.
-    app.add_handler(CommandHandler(["nuevo", "newmatch"], cmd_newmatch))
-    app.add_handler(CommandHandler(["fin", "endmatch"], cmd_endmatch))
-    app.add_handler(CommandHandler("addplayer", cmd_addplayer))
-    app.add_handler(CommandHandler("target", cmd_target))
-    app.add_handler(CommandHandler("undo", cmd_undo))
-
-    app.add_handler(MessageHandler(filters.PHOTO, on_photo))
-    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, on_voice))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    app.add_handler(CallbackQueryHandler(on_callback))
-
-    # Surface (don't swallow) exceptions raised inside any handler.
-    app.add_error_handler(on_error)
+    register_handlers(app)
 
     if app.job_queue is not None:
         app.job_queue.run_repeating(nudge_job, interval=600, first=600)

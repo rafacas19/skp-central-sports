@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from .ai.base import AIProvider, ClassifiedNote, ParsedPlayer, PlayerMatch
 from .models import Observation, Player, Session
 from .storage import Storage
+from .taxonomy import name_matches, normalize_name
 
 
 @dataclass
@@ -68,6 +69,55 @@ class ScoutingService:
         ]
         await self.storage.replace_roster(session.id, players)
 
+    async def merge_roster(self, session: Session, parsed: list[ParsedPlayer]) -> None:
+        """Merge a freshly-parsed roster into the staged one (one team may arrive
+        on a separate photo). New (side, number) entries are added; an existing
+        (side, number) is overwritten by the new photo's name/position.
+
+        Players with no jersey number can't be keyed reliably, so they are always
+        appended rather than collapsed onto a shared (side, None) key — losing a
+        name to a silent overwrite is worse than a stray duplicate the agent can
+        fix before confirming.
+        """
+        merged: dict[tuple[str, int], Player] = {}
+        order: list[Player] = []  # preserve insertion order; holds keyed + null-num
+        for existing in session.players:
+            if existing.number is None:
+                order.append(existing)
+                continue
+            key = (existing.side, existing.number)
+            merged[key] = existing
+            order.append(existing)
+
+        for p in parsed:
+            if p.number is None:
+                order.append(
+                    Player(
+                        session_id=session.id,
+                        side=p.side,
+                        number=None,
+                        name=p.name,
+                        position=p.position,
+                    )
+                )
+                continue
+            key = (p.side, p.number)
+            if key in merged:
+                merged[key].name = p.name
+                merged[key].position = p.position
+            else:
+                new = Player(
+                    session_id=session.id,
+                    side=p.side,
+                    number=p.number,
+                    name=p.name,
+                    position=p.position,
+                )
+                merged[key] = new
+                order.append(new)
+
+        await self.storage.replace_roster(session.id, order)
+
     async def confirm_roster(self, session: Session) -> None:
         await self.storage.confirm_roster(session.id)
 
@@ -75,14 +125,23 @@ class ScoutingService:
     async def transcribe(self, audio_bytes: bytes, mime_type: str) -> str:
         return await self.ai.transcribe_voice(audio_bytes, mime_type)
 
-    async def capture_note(self, session: Session, text: str) -> CaptureResult:
-        """Classify a note and either store it (confident) or flag for
-        disambiguation (ambiguous). 'Ask only when unsure.'"""
+    async def capture_notes(self, session: Session, text: str) -> list[CaptureResult]:
+        """Classify a message (which may qualify several players) into one or more
+        notes, storing the confident ones and flagging ambiguous ones for
+        disambiguation. 'Ask only when unsure.'"""
         roster_parsed = [
             ParsedPlayer(p.number, p.name, p.position, p.side) for p in session.players
         ]
-        classified = await self.ai.classify_note(text, roster_parsed)
+        classified_list = await self.ai.classify_notes(text, roster_parsed)
+        results: list[CaptureResult] = []
+        for classified in classified_list:
+            results.append(await self._process_one(session, classified))
+        return results
 
+    async def _process_one(
+        self, session: Session, classified: ClassifiedNote
+    ) -> CaptureResult:
+        """Store one classified note (confident) or flag it for disambiguation."""
         # Team-level note: store with no player, no disambiguation.
         if classified.is_team_note:
             obs = await self._store(session, classified, player=None)
@@ -178,11 +237,18 @@ class ScoutingService:
             return []
         players = list(session.players)
 
-        # Name is the strongest signal.
+        # Name is the strongest signal. Try exact (accent-insensitive) first so a
+        # clean unique name stays confident, then fall back to fuzzy matching
+        # (surname-only / typo / accents) before resorting to number/position.
         if ref.name:
-            by_name = [p for p in players if p.name.lower() == ref.name.lower()]
-            if by_name:
-                return by_name
+            exact = [
+                p for p in players if normalize_name(p.name) == normalize_name(ref.name)
+            ]
+            if exact:
+                return exact
+            fuzzy = [p for p in players if name_matches(ref.name, p.name)]
+            if fuzzy:
+                return fuzzy
 
         pool = players
         if ref.side:

@@ -141,6 +141,63 @@ def build_markdown(session: Session) -> str:
     return "\n".join(out)
 
 
+# ── CSV report ────────────────────────────────────────────────────────────────
+# The recruiter-facing match file is delivered as a CSV (one row per observation)
+# so it imports cleanly into a spreadsheet. Written with the stdlib csv module and
+# encoded UTF-8 with a BOM so Excel renders the Spanish accents correctly.
+
+_CSV_COLUMNS = [
+    "session_id",
+    "match",
+    "label",
+    "side",
+    "player_number",
+    "player_name",
+    "player_position",
+    "is_target",
+    "sentiment",
+    "skill_category",
+    "raw_quote",
+    "created_at",
+]
+
+
+def build_csv(session: Session) -> bytes:
+    """Full match report as CSV bytes — one row per observation.
+
+    Team notes (no player) still emit a row, with the player columns blank and
+    `side` taken from the observation.
+    """
+    import csv
+    import io
+
+    players_by_id = {p.id: p for p in session.players}
+    match = f"{session.home_team} vs {session.away_team}"
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_CSV_COLUMNS)
+    for o in session.observations:
+        p = players_by_id.get(o.player_id) if o.player_id else None
+        writer.writerow(
+            [
+                session.id,
+                match,
+                session.label or "",
+                o.side or (p.side if p else ""),
+                p.number if p and p.number is not None else "",
+                p.name if p else "",
+                p.position if p and p.position else "",
+                "yes" if (p and p.is_target) else "no",
+                o.sentiment or "",
+                o.skill_category or "",
+                o.raw_quote,
+                o.created_at.isoformat() if o.created_at else "",
+            ]
+        )
+    return buf.getvalue().encode("utf-8-sig")
+
+
 # ── PDF report ──────────────────────────────────────────────────────────────
 # Built with ReportLab (pure-Python, no system deps). Emoji are intentionally
 # replaced with text symbols (+N / −N, ★) so the PDF needs no special fonts and

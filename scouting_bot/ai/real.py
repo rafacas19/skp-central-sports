@@ -20,14 +20,18 @@ Extract every visible player for BOTH teams. Return STRICT JSON:
 Use "home" for the first/left team and "away" for the second/right team.
 If you are unsure of a value use null. Return ONLY the JSON object."""
 
-_CLASSIFY_PROMPT = """You classify a single live football scouting note.
+_CLASSIFY_PROMPT = """You classify a live football scouting message.
 
 Roster (the only players that exist in this match):
 {roster}
 
-Note: "{text}"
+Message: "{text}"
 
-Decide:
+A single message may comment on several players or topics (e.g. "#10 great
+vision but #4 too slow"). Emit ONE note per distinct player or team observation.
+Return STRICT JSON: {{"notes": [ <note>, ... ]}} where each <note> has:
+- raw_quote: the phrase from the message this note is about (the whole message if
+  it's a single observation).
 - is_team_note: true if it is about a team/tactics, not a specific player.
 - sentiment: "positive" or "negative" (null if team note).
 - skill_category: one of {skills} (null if team note).
@@ -35,8 +39,18 @@ Decide:
 - confidence: 0.0-1.0 — how sure you are about player_ref. Use < 0.6 when the
   reference is ambiguous (e.g. a jersey number shared by both teams, or a vague
   "the tall one").
+If the message contains no classifiable observation, return {{"notes": []}}.
 
-Return STRICT JSON with exactly these keys. Return ONLY the JSON object."""
+Identifying the player by NAME:
+- Scouts usually refer to players by name, most often just the surname. Match
+  names case- and accent-insensitively ("perez" = "Pérez"), accept a surname on
+  its own ("Messi" → "Lionel Messi"), and tolerate small misspellings or
+  voice-transcription errors ("Mendez" → "Mendes").
+- When you match a name, set player_ref.name to the ROSTER's exact spelling of
+  that player (not the scout's spelling), and raise confidence when the name
+  uniquely identifies one roster player even if no number was given.
+
+Return ONLY the JSON object."""
 
 
 class RealAIProvider(AIProvider):
@@ -99,9 +113,9 @@ class RealAIProvider(AIProvider):
             )
         return players
 
-    async def classify_note(
+    async def classify_notes(
         self, text: str, roster: list[ParsedPlayer]
-    ) -> ClassifiedNote:
+    ) -> list[ClassifiedNote]:
         roster_str = "\n".join(
             f"- {p.side} #{p.number} {p.name} ({p.position})" for p in roster
         )
@@ -112,30 +126,34 @@ class RealAIProvider(AIProvider):
         )
         msg = await self._claude.messages.create(
             model=settings.anthropic_model,
-            max_tokens=600,
+            max_tokens=1200,  # room for several notes from one message
             messages=[{"role": "user", "content": prompt}],
         )
         data = _extract_json(msg.content[0].text)
+        return [_note_from(raw, text) for raw in data.get("notes", [])]
 
-        is_team = bool(data.get("is_team_note"))
-        ref_raw = data.get("player_ref")
-        ref = None
-        if ref_raw and not is_team:
-            ref = PlayerMatch(
-                number=_to_int(ref_raw.get("number")),
-                name=ref_raw.get("name"),
-                position=ref_raw.get("position"),
-                side=ref_raw.get("side"),
-            )
 
-        return ClassifiedNote(
-            raw_quote=text,
-            is_team_note=is_team,
-            sentiment=None if is_team else normalize_sentiment(data.get("sentiment")),
-            skill_category=None if is_team else normalize_skill(data.get("skill_category")),
-            player_ref=ref,
-            confidence=float(data.get("confidence", 0.5)),
+def _note_from(raw: dict, full_text: str) -> ClassifiedNote:
+    """Build a ClassifiedNote from one note object in the model's `notes` array."""
+    is_team = bool(raw.get("is_team_note"))
+    ref_raw = raw.get("player_ref")
+    ref = None
+    if ref_raw and not is_team:
+        ref = PlayerMatch(
+            number=_to_int(ref_raw.get("number")),
+            name=ref_raw.get("name"),
+            position=ref_raw.get("position"),
+            side=ref_raw.get("side"),
         )
+    quote = raw.get("raw_quote") or full_text
+    return ClassifiedNote(
+        raw_quote=quote,
+        is_team_note=is_team,
+        sentiment=None if is_team else normalize_sentiment(raw.get("sentiment")),
+        skill_category=None if is_team else normalize_skill(raw.get("skill_category")),
+        player_ref=ref,
+        confidence=float(raw.get("confidence", 0.5)),
+    )
 
 
 def _extract_json(text: str) -> dict:
