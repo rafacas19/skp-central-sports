@@ -21,7 +21,7 @@ from .models import (
     ScoutProfile,
     Session,
 )
-from .taxonomy import name_matches, normalize_name
+from .taxonomy import name_matches, normalize_identity, normalize_name
 
 
 def _now() -> datetime:
@@ -128,11 +128,13 @@ class Storage:
         *,
         position: str | None = None,
     ) -> Prospect:
-        """Stable prospect, keyed by (chat, normalized name, normalized team).
+        """Stable prospect, keyed by (chat, identity-normalized name, team).
 
-        Different shirt numbers across matches still resolve to one prospect.
+        Different shirt numbers across matches still resolve to one prospect, and
+        a lightly-embellished name ("Castro B.") keys to the same prospect as the
+        bare surname ("Castro") — see taxonomy.normalize_identity.
         """
-        norm_name = normalize_name(name)
+        norm_name = normalize_identity(name)
         norm_team = normalize_name(team) if team else ""
         prospect = await Prospect.filter(
             agent_chat_id=chat_id,
@@ -215,6 +217,20 @@ class Storage:
             return
         await Observation.filter(prospect_id=drop_id).update(prospect_id=keep_id)
         await Prospect.filter(id=drop_id).delete()
+
+    async def prospects_in_session(self, session_id: int) -> list[Prospect]:
+        """Distinct named (non-temporary) prospects referenced by this session's
+        observations — the dedup candidates at /finalizar."""
+        rows = await Observation.filter(
+            session_id=session_id, prospect_id__not_isnull=True
+        ).values_list("prospect_id", flat=True)
+        ids = {pid for pid in rows if pid is not None}
+        if not ids:
+            return []
+        prospects = await Prospect.filter(
+            id__in=ids, is_temporary=False
+        ).exclude(name="").order_by("id")
+        return list(prospects)
 
     async def observations_for_prospect(
         self, chat_id: int, prospect_id: int

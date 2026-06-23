@@ -27,7 +27,11 @@ Devuelve JSON ESTRICTO: {{"notes": [ <note>, ... ]}} donde cada <note> tiene:
   completo si es una sola observación).
 - is_team_note: true si habla del equipo/táctica, no de un jugador concreto.
 - player_ref: {{"number":int|null,"name":str|null,"position":str|null,"team":str|null,"side":"home"|"away"|null}}
-  - name: el nombre/apellido si se menciona.
+  - name: SOLO los tokens de nombre/apellido que el scout escribió textualmente.
+    NUNCA inventes, expandas ni añadas iniciales, segundos apellidos, acentos ni
+    puntuación que el scout no haya dicho. Si el scout solo dijo el apellido,
+    devuelve únicamente ese apellido (p. ej. si dijo "Castro", devuelve "Castro",
+    nunca "Castro B." ni "C. Castro"). Si no se menciona ningún nombre, null.
   - team: el nombre EXACTO del equipo ("{home}" o "{away}") si el scout lo dice.
   - side: "home" si team es "{home}", "away" si es "{away}", si no null.
 - confidence: 0.0-1.0. Usa < 0.6 cuando la referencia es ambigua, sobre todo un

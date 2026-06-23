@@ -48,8 +48,10 @@ async def test_find_prospects_by_name_is_fuzzy(service):
 async def test_merge_prospects_repoints_observations(service):
     chat = 103
     s, _ = await service.start_session(chat, "A", "B", None)
+    # Two genuinely distinct prospects (not a bare-initial variant, which would
+    # now collapse to one — see test_embellished_name_reuses_same_prospect).
     keep = await service.storage.get_or_create_prospect(chat, "Castro", "A")
-    drop = await service.storage.get_or_create_prospect(chat, "Castro D", "A")
+    drop = await service.storage.get_or_create_prospect(chat, "Castrillo", "A")
     await service.storage.add_observation(
         Observation(session_id=s.id, prospect_id=drop.id, raw_quote="buen pase")
     )
@@ -68,6 +70,31 @@ async def test_scout_name_set_and_get(service):
     assert await service.storage.get_scout_name(chat) == "Rafa"
     await service.storage.set_scout_name(chat, "Rafael")  # update
     assert await service.storage.get_scout_name(chat) == "Rafael"
+
+
+# ── Fix 2: identity normalization (no name fragmentation) ─────────────────────
+def test_normalize_identity_collapses_trailing_initial():
+    from scouting_bot.taxonomy import normalize_identity
+
+    assert normalize_identity("Castro B.") == "castro"
+    assert normalize_identity("Castro") == "castro"
+    assert normalize_identity("C. Castro") == "c castro"  # leading initial kept
+    assert normalize_identity("Daniel Castro") == "daniel castro"
+    # A genuinely different surname stays distinct (no fuzzy collapse).
+    assert normalize_identity("Castrillo") == "castrillo"
+
+
+@pytest.mark.asyncio
+async def test_embellished_name_reuses_same_prospect(service):
+    """'Castro B.' must key to the same prospect as 'Castro' (same team)."""
+    chat = 106
+    p1 = await service.storage.get_or_create_prospect(chat, "Castro", "América")
+    p2 = await service.storage.get_or_create_prospect(chat, "Castro B.", "América")
+    assert p1.id == p2.id  # no duplicate row
+
+    # But a different surname is still its own prospect.
+    other = await service.storage.get_or_create_prospect(chat, "Castrillo", "América")
+    assert other.id != p1.id
 
 
 @pytest.mark.asyncio

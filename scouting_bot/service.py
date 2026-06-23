@@ -7,12 +7,15 @@ unit-testable without a running bot.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 
 from .ai.base import AIProvider, ClassifiedNote, PlayerMatch
 from .models import Observation, Prospect, Session
 from .storage import Storage
+
+logger = logging.getLogger(__name__)
 
 # Inline manual rating: "... valoración 7", "valoracion: 7.5", "rating 8".
 _RATING_RE = re.compile(
@@ -240,7 +243,7 @@ class ScoutingService:
     ) -> Prospect | list[Prospect]:
         """Edit a prospect's fields by name. Renaming recomputes the identity key
         and clears the temporary flag (a named player is no longer 'unknown')."""
-        from .taxonomy import normalize_name
+        from .taxonomy import normalize_identity, normalize_name
 
         matches = await self.storage.find_prospects_by_name(chat_id, name)
         # A temporary prospect won't be found by name (it has none); allow editing
@@ -253,7 +256,7 @@ class ScoutingService:
         prospect = matches[0]
         updates = dict(fields)
         if "name" in updates:
-            updates["normalized_name"] = normalize_name(updates["name"])
+            updates["normalized_name"] = normalize_identity(updates["name"])
             updates["is_temporary"] = False
         if "team" in updates:
             updates["normalized_team"] = normalize_name(updates["team"] or "")
@@ -280,6 +283,41 @@ class ScoutingService:
 
     async def merge(self, keep_id: int, drop_id: int) -> None:
         await self.storage.merge_prospects(keep_id, drop_id)
+
+    # Cap on dedup questions asked at /finalizar (avoid flooding the scout).
+    DEDUP_PAIR_CAP = 5
+
+    async def find_dedup_pairs(
+        self, session: Session
+    ) -> list[tuple[Prospect, Prospect]]:
+        """Pairs of DISTINCT named prospects in this match whose names fuzzily
+        match and share a team — likely the same player split in two (e.g. the AI
+        wrote 'Castro' once and 'Castro B.' another time, or two near-spellings).
+        Each prospect appears in at most one pair; capped at DEDUP_PAIR_CAP."""
+        from .taxonomy import name_matches, normalize_name
+
+        prospects = await self.storage.prospects_in_session(session.id)
+        pairs: list[tuple[Prospect, Prospect]] = []
+        used: set[int] = set()
+        for i, a in enumerate(prospects):
+            if a.id in used:
+                continue
+            for b in prospects[i + 1 :]:
+                if b.id in used or a.id == b.id:
+                    continue
+                same_team = normalize_name(a.team or "") == normalize_name(b.team or "")
+                if same_team and name_matches(a.name, b.name):
+                    pairs.append((a, b))  # a has the lower id (storage orders by id)
+                    used.add(a.id)
+                    used.add(b.id)
+                    break
+        if len(pairs) > self.DEDUP_PAIR_CAP:
+            logger.warning(
+                "session %s: %d dedup pairs found, asking only %d",
+                session.id, len(pairs), self.DEDUP_PAIR_CAP,
+            )
+            pairs = pairs[: self.DEDUP_PAIR_CAP]
+        return pairs
 
     async def rate_by_name(
         self, chat_id: int, name: str, score: float

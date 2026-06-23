@@ -141,17 +141,46 @@ async def cmd_endmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("No hay ninguna sesión activa. Inicia una con /nuevo.")
         return
 
+    # Before finalizing, ask the scout to resolve likely-duplicate players
+    # (e.g. "Castro" vs "Castro B." captured as two prospects). Only then build
+    # and send the report. With no candidate pairs, finalize immediately.
+    pairs = await svc.find_dedup_pairs(session)
+    if not pairs:
+        await _do_finalize(chat_id, context, session)
+        return
+
+    pending = context.user_data.setdefault(_PENDING, [])
+    for keep, drop in pairs:
+        pending.append(
+            {
+                "kind": "dedup",
+                "keep_id": keep.id,
+                "drop_id": drop.id,
+                "keep_name": keep.name,
+                "drop_name": drop.name,
+            }
+        )
+    pending.append({"kind": "finalize_after_dedup", "session_id": session.id})
+    await _ask_next_pending(chat_id, context)
+
+
+async def _do_finalize(
+    chat_id: int, context: ContextTypes.DEFAULT_TYPE, session: Session
+) -> None:
+    """End the session and send the summary + CSV. Uses context.bot.send_* so it
+    works both from /finalizar directly and after the dedup-confirmation flow
+    (where there is no incoming message to reply to)."""
+    svc = _svc(context)
     ended = await svc.end_session(session)
-    await update.message.reply_text("🏁 Sesión finalizada. Generando informe…")
-
-    summary = build_summary(ended)
-    await update.message.reply_text(summary, parse_mode="Markdown")
-
+    await context.bot.send_message(chat_id, "🏁 Sesión finalizada. Generando informe…")
+    await context.bot.send_message(
+        chat_id, build_summary(ended), parse_mode="Markdown"
+    )
     csv_bytes = build_csv(ended)
     buf = io.BytesIO(csv_bytes)
     fname = f"informe_{ended.home_team}_vs_{ended.away_team}".replace(" ", "_")
-    await update.message.reply_document(
-        document=InputFile(buf, filename=f"{fname}.csv")
+    await context.bot.send_document(
+        chat_id, document=InputFile(buf, filename=f"{fname}.csv")
     )
 
 
@@ -542,6 +571,42 @@ async def _ask_next_pending(chat_id: int, context: ContextTypes.DEFAULT_TYPE) ->
             f"🤔 ¿Te refieres al #{number} de {teams[0]} o al #{number} de {teams[1]}?",
             reply_markup=InlineKeyboardMarkup(rows),
         )
+    elif entry["kind"] == "dedup":
+        # Skip if a prior merge already removed one side (transitive chains).
+        svc = _svc(context)
+        keep = await svc.storage.get_prospect(entry["keep_id"])
+        drop = await svc.storage.get_prospect(entry["drop_id"])
+        if keep is None or drop is None:
+            pending.pop(0)
+            await _ask_next_pending(chat_id, context)
+            return
+        # Two "Sí" buttons let the scout choose which NAME survives; the merge
+        # repoints the other's observations onto it.
+        rows = [
+            [InlineKeyboardButton(
+                f"✅ Sí — mantener «{entry['keep_name']}»",
+                callback_data=f"dedup:{entry['keep_id']}:{entry['drop_id']}",
+            )],
+            [InlineKeyboardButton(
+                f"✅ Sí — mantener «{entry['drop_name']}»",
+                callback_data=f"dedup:{entry['drop_id']}:{entry['keep_id']}",
+            )],
+            [InlineKeyboardButton("🚫 No, son distintos", callback_data="dedup:no")],
+        ]
+        await context.bot.send_message(
+            chat_id,
+            f"🤔 ¿*{entry['keep_name']}* y *{entry['drop_name']}* son el mismo jugador?",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+    elif entry["kind"] == "finalize_after_dedup":
+        pending.pop(0)
+        if not pending:
+            context.user_data.pop(_PENDING, None)
+        svc = _svc(context)
+        session = await svc.storage.get_active_session(chat_id)
+        if session is not None and session.id == entry["session_id"]:
+            await _do_finalize(chat_id, context, session)
 
 
 # ── callbacks (inline buttons) ───────────────────────────────────────────
@@ -552,12 +617,15 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     svc = _svc(context)
     chat_id = update.effective_chat.id
 
-    # Decision / merge buttons don't need an active match.
+    # Decision / merge / dedup buttons don't need an active-match lookup here.
     if data.startswith("decision:"):
         await _resolve_decision(query, context, data)
         return
     if data.startswith("merge:"):
         await _resolve_merge(query, context, data)
+        return
+    if data.startswith("dedup:"):
+        await _resolve_dedup(query, context, data)
         return
 
     session = await svc.storage.get_active_session(chat_id)
@@ -590,6 +658,29 @@ async def _resolve_merge(query, context, data: str) -> None:
     keep_id, drop_id = int(parts[1]), int(parts[2])
     await _svc(context).merge(keep_id, drop_id)
     await query.edit_message_text("🔗 Jugadores unidos.")
+
+
+async def _resolve_dedup(query, context, data: str) -> None:
+    """Handle an end-of-match dedup answer: 'dedup:<keep_id>:<drop_id>' (Sí, with
+    the chosen surviving name first) or 'dedup:no' (son distintos). Then advance
+    the pending queue — the next dedup question, or the finalize sentinel."""
+    pending = context.user_data.get(_PENDING, [])
+    parts = data.split(":")
+    if parts[1] == "no":
+        await query.edit_message_text("Ok, los mantengo como jugadores distintos.")
+    else:
+        keep_id, drop_id = int(parts[1]), int(parts[2])
+        await _svc(context).merge(keep_id, drop_id)
+        await query.edit_message_text("🔗 Jugadores unidos.")
+
+    # Pop the answered dedup head and drive the next pending step (which may be
+    # the finalize sentinel → builds + sends the report).
+    if pending and pending[0]["kind"] == "dedup":
+        pending.pop(0)
+    if pending:
+        await _ask_next_pending(query.message.chat_id, context)
+    else:
+        context.user_data.pop(_PENDING, None)
 
 
 async def _resolve_newmatch(query, context, session: Session, action: str) -> None:

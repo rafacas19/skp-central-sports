@@ -226,6 +226,64 @@ async def test_e2e_merge_command(harness):
     assert harness.outbox.texts_containing("unidos")
 
 
+# ── end-of-match fuzzy-dedup confirmation ─────────────────────────────────────
+def _dedup_yes_button(outbox) -> str | None:
+    """The first 'dedup:<keep>:<drop>' (Sí) callback_data, skipping dedup:no."""
+    for d in outbox.callback_data():
+        if d.startswith("dedup:") and d != "dedup:no":
+            return d
+    return None
+
+
+@pytest.mark.asyncio
+async def test_e2e_finalize_asks_dedup_then_merges_and_sends_csv(harness):
+    await harness.send_text("/nuevo Millonarios vs América")
+    # Two near-name same-team prospects (distinct first tokens that fuzzy-match).
+    await harness.send_text("Castro de América buen pase")
+    await harness.send_text("Castrillo de América buen control")
+
+    harness.outbox.clear()
+    await harness.send_text("/finalizar")
+    # Bot asks before finalizing — and no CSV yet.
+    assert harness.outbox.texts_containing("son el mismo jugador")
+    assert _dedup_yes_button(harness.outbox) is not None
+    assert harness.outbox.documents_sent() == []
+
+    # Confirm they're the same → merge, THEN the report is sent.
+    pick = _dedup_yes_button(harness.outbox)
+    await harness.tap_button(pick)
+    assert harness.outbox.texts_containing("unidos")
+    docs = harness.outbox.documents_sent()
+    assert len(docs) == 1 and docs[0][0] == "informe_Millonarios_vs_América.csv"
+
+
+@pytest.mark.asyncio
+async def test_e2e_finalize_dedup_no_keeps_distinct_still_sends_report(harness):
+    await harness.send_text("/nuevo Millonarios vs América")
+    await harness.send_text("Castro de América buen pase")
+    await harness.send_text("Castrillo de América buen control")
+
+    harness.outbox.clear()
+    await harness.send_text("/finalizar")
+    assert harness.outbox.texts_containing("son el mismo jugador")
+
+    await harness.tap_button("dedup:no")
+    assert harness.outbox.texts_containing("distintos")
+    # Report still sent even when kept distinct.
+    assert len(harness.outbox.documents_sent()) == 1
+
+
+@pytest.mark.asyncio
+async def test_e2e_finalize_no_dups_finalizes_immediately(harness):
+    await harness.send_text("/nuevo Millonarios vs América")
+    await harness.send_text("Castro de América buen pase")
+    harness.outbox.clear()
+    await harness.send_text("/finalizar")
+    # No near-duplicate pair → no dedup question, CSV sent straight away.
+    assert not harness.outbox.texts_containing("son el mismo jugador")
+    assert len(harness.outbox.documents_sent()) == 1
+
+
 # ── webhook authentication (HTTP layer) ───────────────────────────────────────
 @pytest.mark.asyncio
 async def test_e2e_webhook_rejects_wrong_token(harness):

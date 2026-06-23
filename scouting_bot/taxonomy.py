@@ -25,6 +25,23 @@ def normalize_name(s: str) -> str:
     return stripped.lower().strip()
 
 
+def normalize_identity(s: str) -> str:
+    """Normalization for prospect *identity keying*.
+
+    Like `normalize_name`, but also drops punctuation and trailing single-letter
+    initials so a name the AI lightly embellished ("Castro B.") keys to the same
+    prospect as the bare surname the scout said ("Castro"), instead of creating a
+    duplicate. Deterministic and conservative — it does NOT fuzzy-match, so two
+    genuinely different surnames ("Castro" vs "Castrillo") stay distinct.
+    """
+    base = normalize_name(s).replace(".", " ").replace(",", " ")
+    tokens = base.split()
+    # Drop trailing bare initials ("castro b" → "castro").
+    while len(tokens) > 1 and len(tokens[-1]) == 1:
+        tokens.pop()
+    return " ".join(tokens)
+
+
 def name_matches(ref_name: str | None, player_name: str) -> bool:
     """Does a scout's free-form name reference plausibly mean this player?
 
