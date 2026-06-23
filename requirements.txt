@@ -14,9 +14,6 @@ aerich>=0.8,<0.9
 # Configuration
 python-dotenv==1.0.1
 
-# PDF report generation (pure-Python, no system deps).
-reportlab>=4.2,<5.0
-
 # AI providers (only needed when USE_MOCK_AI=false)
 # Use floors, not exact pins: older anthropic/openai releases pass a `proxies`
 # kwarg that httpx>=0.28 removed, which crashes at client construction.

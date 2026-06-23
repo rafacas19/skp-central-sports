@@ -1,6 +1,6 @@
 import pytest
 
-from scouting_bot.models import HOME, Observation, Player
+from scouting_bot.models import Observation
 
 
 @pytest.mark.asyncio
@@ -24,36 +24,19 @@ async def test_session_survives_reload(storage):
 
 
 @pytest.mark.asyncio
-async def test_roster_replace_and_list(storage):
-    sess = await storage.create_session(1, "A", "B", None)
-    players = [
-        Player(session_id=sess.id, side=HOME, number=8, name="Vidal", position="CM"),
-        Player(session_id=sess.id, side="away", number=8, name="Mendes", position="CM"),
-    ]
-    await storage.replace_roster(sess.id, players)
-    listed = await storage.list_players(sess.id)
-    assert {p.name for p in listed} == {"Vidal", "Mendes"}
-
-
-@pytest.mark.asyncio
 async def test_observation_crud(storage):
     sess = await storage.create_session(1, "A", "B", None)
     obs = await storage.add_observation(
         Observation(
             session_id=sess.id,
-            player_id=None,
-            side=HOME,
-            sentiment="positive",
-            skill_category="passing",
-            raw_quote="great pass",
+            prospect_id=None,
+            raw_quote="buen pase",
+            source="text",
         )
     )
     assert obs.id is not None
     last = await storage.last_observation(sess.id)
-    assert last.raw_quote == "great pass"
-    await storage.update_observation(obs.id, sentiment="negative")
-    refetched = await storage.last_observation(sess.id)
-    assert refetched.sentiment == "negative"
+    assert last.raw_quote == "buen pase"
     await storage.delete_observation(obs.id)
     assert await storage.last_observation(sess.id) is None
 

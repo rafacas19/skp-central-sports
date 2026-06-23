@@ -1,3 +1,5 @@
+"""Match CSV (new columns) + cross-match player report (Phase 4)."""
+
 import csv
 import io
 
@@ -6,104 +8,79 @@ import pytest
 from scouting_bot.report import (
     _CSV_COLUMNS,
     build_csv,
-    build_markdown,
-    build_pdf,
+    build_player_report,
     build_summary,
 )
 
 
-@pytest.mark.asyncio
-async def test_full_match_report(service):
-    # Full happy-path flow end-to-end with the mock AI.
-    sess, _ = await service.start_session(1, "Boca", "River", "Liga, round 12")
-    parsed = await service.parse_and_stage_roster(b"fake-image", "image/jpeg")
-    await service.save_roster(sess, parsed)
-    await service.confirm_roster(sess)
-    sess = await service.storage.get_session(sess.id)
-
-    # Flag a target.
-    target = next(p for p in sess.players if p.name == "Sosa")
-    await service.set_target(target, True)
-    sess = await service.storage.get_session(sess.id)
-
-    notes = [
-        "Sosa great vision and passing",
-        "Sosa brilliant first touch",
-        "Núñez clinical finish",
-        "Romero too slow on the turn",
-        "the team is pressing high leaving space behind",
-    ]
-    for n in notes:
-        for result in await service.capture_notes(sess, n):
-            if result.needs_disambiguation:
-                await service.resolve_disambiguation(
-                    sess, result.classified, result.candidates[0]
-                )
-
-    ended = await service.end_session(sess)
-
-    summary = build_summary(ended)
-    assert "Boca" in summary and "River" in summary
-    assert "Jugadores objetivo" in summary
-    assert "Sosa" in summary
-
-    md = build_markdown(ended)
-    assert "# Informe del partido" in md
-    assert "Sosa" in md
-    assert "Notas de equipo" in md
-    assert "pressing high" in md
-    # Sosa got 2 positive notes.
-    assert "2 positivas" in md or "👍 2" in md
-
-    # PDF renders to valid, non-trivial PDF bytes.
-    pdf = build_pdf(ended)
-    assert isinstance(pdf, bytes)
-    assert pdf.startswith(b"%PDF-")
-    assert len(pdf) > 1000
+async def _capture(service, sess, text, source="text"):
+    for r in await service.capture_notes(sess, text, source=source):
+        if r.needs_team_choice:
+            await service.resolve_team_choice(sess, r.classified, r.team_candidates[0])
 
 
 @pytest.mark.asyncio
-async def test_report_handles_empty_session(service):
-    sess, _ = await service.start_session(1, "A", "B", None)
-    ended = await service.end_session(sess)
-    # Should not raise even with no roster / no notes.
-    assert "A" in build_summary(ended)
-    assert "# Informe del partido" in build_markdown(ended)
-    # PDF generation must not raise on an empty session either.
-    pdf = build_pdf(ended)
-    assert pdf.startswith(b"%PDF-")
-
-
-@pytest.mark.asyncio
-async def test_csv_report(service):
-    sess, _ = await service.start_session(1, "Boca", "River", "Liga, round 12")
-    parsed = await service.parse_and_stage_roster(b"fake-image", "image/jpeg")
-    await service.save_roster(sess, parsed)
-    await service.confirm_roster(sess)
-    sess = await service.storage.get_session(sess.id)
-
-    # Two player notes (unique names) + one team note.
-    for note in ("Sosa great vision", "Núñez clinical finish"):
-        for r in await service.capture_notes(sess, note):
-            assert not r.needs_disambiguation
-    await service.capture_notes(sess, "the team is pressing high leaving space")
+async def test_csv_columns_and_opponent(service):
+    await service.storage.set_scout_name(1, "Rafa")
+    sess, _ = await service.start_session(1, "Millonarios", "América", None)
+    await _capture(service, sess, "Castro de América buen pase valoración 8")
+    await _capture(service, sess, "América presiona alto")  # team note
     ended = await service.end_session(sess)
 
     raw = build_csv(ended)
-    assert isinstance(raw, bytes)
     rows = list(csv.reader(io.StringIO(raw.decode("utf-8-sig"))))
-
     assert rows[0] == _CSV_COLUMNS
     data = rows[1:]
-    assert len(data) == 3  # 2 player + 1 team observation
 
-    by_quote = {row[_CSV_COLUMNS.index("raw_quote")]: row for row in data}
-    sosa = by_quote["Sosa great vision"]
-    assert sosa[_CSV_COLUMNS.index("match")] == "Boca vs River"
-    assert sosa[_CSV_COLUMNS.index("player_name")] == "Sosa"
-    assert sosa[_CSV_COLUMNS.index("player_number")] == "10"
-    assert sosa[_CSV_COLUMNS.index("sentiment")] == "positive"
+    col = {name: i for i, name in enumerate(_CSV_COLUMNS)}
+    castro = next(r for r in data if "Castro" in r[col["Observation"]])
+    assert castro[col["Match"]] == "Millonarios vs América"
+    assert castro[col["Team"]] == "América"
+    assert castro[col["Opponent"]] == "Millonarios"  # derived
+    assert castro[col["Player name"]] == "Castro"
+    assert castro[col["Manual rating"]] == "8"
+    assert castro[col["Scout"]] == "Rafa"
+    assert castro[col["Source"]] == "text"
 
-    team = by_quote["the team is pressing high leaving space"]
-    assert team[_CSV_COLUMNS.index("player_name")] == ""
-    assert team[_CSV_COLUMNS.index("player_number")] == ""
+
+@pytest.mark.asyncio
+async def test_csv_handles_empty_session(service):
+    sess, _ = await service.start_session(1, "A", "B", None)
+    ended = await service.end_session(sess)
+    raw = build_csv(ended)
+    rows = list(csv.reader(io.StringIO(raw.decode("utf-8-sig"))))
+    assert rows[0] == _CSV_COLUMNS
+    assert len(rows) == 1  # header only
+
+
+@pytest.mark.asyncio
+async def test_player_report_spans_matches_with_summary(service):
+    chat = 3
+    m1, _ = await service.start_session(chat, "América", "Nacional", None)
+    await _capture(service, m1, "Castro de América buen pase")
+    await service.end_session(m1)
+    m2, _ = await service.start_session(chat, "Millonarios", "América", None)
+    await _capture(service, m2, "Castro de América gana los duelos")
+    await service.end_session(m2)
+
+    result = await service.player_report(chat, "Castro")
+    assert not isinstance(result, list)
+    prospect, observations, summary = result
+    assert len(observations) == 2
+    report = build_player_report(prospect, observations, summary)
+    assert "Castro" in report
+    assert "Historial" in report and "Resumen" in report
+    assert "buen pase" in report and "gana los duelos" in report
+    # Both matches appear in the history.
+    assert "América vs Nacional" in report and "Millonarios vs América" in report
+
+
+@pytest.mark.asyncio
+async def test_summary_groups_by_player(service):
+    sess, _ = await service.start_session(1, "A", "B", None)
+    await _capture(service, sess, "Castro de A buen pase")
+    await _capture(service, sess, "Castro de A buen control")
+    ended = await service.end_session(sess)
+    summary = build_summary(ended)
+    assert "Castro" in summary
+    assert "2 obs" in summary  # two observations rolled up for Castro

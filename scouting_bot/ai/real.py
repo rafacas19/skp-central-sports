@@ -6,51 +6,46 @@ the MVP. The bot logic is identical to the mock path — same return types.
 
 from __future__ import annotations
 
-import base64
 import io
 import json
 
 from ..config import settings
-from ..taxonomy import SKILL_CATEGORIES, normalize_sentiment, normalize_skill
-from .base import AIProvider, ClassifiedNote, ParsedPlayer, PlayerMatch
+from .base import AIProvider, ClassifiedNote, PlayerMatch
 
-_LINEUP_PROMPT = """You are reading a football match lineup image.
-Extract every visible player for BOTH teams. Return STRICT JSON:
-{"players": [{"number": int|null, "name": str, "position": str|null, "side": "home"|"away"}]}
-Use "home" for the first/left team and "away" for the second/right team.
-If you are unsure of a value use null. Return ONLY the JSON object."""
+_CLASSIFY_PROMPT = """Eres un asistente de scouting de fútbol. Extraes la
+IDENTIDAD del jugador de un mensaje de observación en vivo. NO evalúes ni
+califiques: solo identifica de quién habla la nota.
 
-_CLASSIFY_PROMPT = """You classify a live football scouting message.
+Partido: "{home}" (local) vs "{away}" (visitante).
 
-Roster (the only players that exist in this match):
-{roster}
+Mensaje: "{text}"
 
-Message: "{text}"
+Un mensaje puede comentar a varios jugadores (p. ej. "el 10 muy bien pero el 4
+lento"). Emite UNA nota por cada jugador o nota de equipo distinta.
+Devuelve JSON ESTRICTO: {{"notes": [ <note>, ... ]}} donde cada <note> tiene:
+- raw_quote: la frase del mensaje que corresponde a esta nota (el mensaje
+  completo si es una sola observación).
+- is_team_note: true si habla del equipo/táctica, no de un jugador concreto.
+- player_ref: {{"number":int|null,"name":str|null,"position":str|null,"team":str|null,"side":"home"|"away"|null}}
+  - name: el nombre/apellido si se menciona.
+  - team: el nombre EXACTO del equipo ("{home}" o "{away}") si el scout lo dice.
+  - side: "home" si team es "{home}", "away" si es "{away}", si no null.
+- confidence: 0.0-1.0. Usa < 0.6 cuando la referencia es ambigua, sobre todo un
+  número SIN equipo (podría ser de cualquiera de los dos equipos). Un nombre, o
+  un número con equipo indicado, es alta confianza.
+Si el mensaje no contiene ninguna observación clasificable devuelve {{"notes": []}}.
 
-A single message may comment on several players or topics (e.g. "#10 great
-vision but #4 too slow"). Emit ONE note per distinct player or team observation.
-Return STRICT JSON: {{"notes": [ <note>, ... ]}} where each <note> has:
-- raw_quote: the phrase from the message this note is about (the whole message if
-  it's a single observation).
-- is_team_note: true if it is about a team/tactics, not a specific player.
-- sentiment: "positive" or "negative" (null if team note).
-- skill_category: one of {skills} (null if team note).
-- player_ref: the player it refers to, as {{"number":int|null,"name":str|null,"position":str|null,"side":"home"|"away"|null}} (null if team note or unknown).
-- confidence: 0.0-1.0 — how sure you are about player_ref. Use < 0.6 when the
-  reference is ambiguous (e.g. a jersey number shared by both teams, or a vague
-  "the tall one").
-If the message contains no classifiable observation, return {{"notes": []}}.
+Devuelve SOLO el objeto JSON."""
 
-Identifying the player by NAME:
-- Scouts usually refer to players by name, most often just the surname. Match
-  names case- and accent-insensitively ("perez" = "Pérez"), accept a surname on
-  its own ("Messi" → "Lionel Messi"), and tolerate small misspellings or
-  voice-transcription errors ("Mendez" → "Mendes").
-- When you match a name, set player_ref.name to the ROSTER's exact spelling of
-  that player (not the scout's spelling), and raise confidence when the name
-  uniquely identifies one roster player even if no number was given.
+_SUMMARY_PROMPT = """Eres un analista de scouting. A partir del historial de
+observaciones en bruto de un jugador (en varios partidos), redacta un perfil
+breve en español: patrones recurrentes, fortalezas, posibles dudas y una
+recomendación final. No inventes datos que no estén en las observaciones.
 
-Return ONLY the JSON object."""
+Observaciones (JSON):
+{observations}
+
+Devuelve solo el texto del perfil, sin encabezados ni JSON."""
 
 
 class RealAIProvider(AIProvider):
@@ -75,54 +70,13 @@ class RealAIProvider(AIProvider):
         )
         return resp.text.strip()
 
-    async def parse_lineup(
-        self, image_bytes: bytes, mime_type: str
-    ) -> list[ParsedPlayer]:
-        b64 = base64.standard_b64encode(image_bytes).decode()
-        msg = await self._claude.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=2000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": mime_type,
-                                "data": b64,
-                            },
-                        },
-                        {"type": "text", "text": _LINEUP_PROMPT},
-                    ],
-                }
-            ],
-        )
-        data = _extract_json(msg.content[0].text)
-        players: list[ParsedPlayer] = []
-        for p in data.get("players", []):
-            side = "away" if str(p.get("side", "home")).lower().startswith("a") else "home"
-            players.append(
-                ParsedPlayer(
-                    number=_to_int(p.get("number")),
-                    name=str(p.get("name", "")).strip() or "Unknown",
-                    position=p.get("position"),
-                    side=side,
-                )
-            )
-        return players
-
     async def classify_notes(
-        self, text: str, roster: list[ParsedPlayer]
+        self, text: str, home_team: str, away_team: str
     ) -> list[ClassifiedNote]:
-        roster_str = "\n".join(
-            f"- {p.side} #{p.number} {p.name} ({p.position})" for p in roster
-        )
         prompt = _CLASSIFY_PROMPT.format(
-            roster=roster_str or "(empty)",
+            home=home_team,
+            away=away_team,
             text=text.replace('"', "'"),
-            skills=", ".join(SKILL_CATEGORIES),
         )
         msg = await self._claude.messages.create(
             model=settings.anthropic_model,
@@ -132,25 +86,33 @@ class RealAIProvider(AIProvider):
         data = _extract_json(msg.content[0].text)
         return [_note_from(raw, text) for raw in data.get("notes", [])]
 
+    async def summarize_player(self, observations: list[dict]) -> str:
+        prompt = _SUMMARY_PROMPT.format(observations=json.dumps(observations, ensure_ascii=False))
+        msg = await self._claude.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text.strip()
+
 
 def _note_from(raw: dict, full_text: str) -> ClassifiedNote:
     """Build a ClassifiedNote from one note object in the model's `notes` array."""
     is_team = bool(raw.get("is_team_note"))
     ref_raw = raw.get("player_ref")
     ref = None
-    if ref_raw and not is_team:
+    if ref_raw:
         ref = PlayerMatch(
             number=_to_int(ref_raw.get("number")),
             name=ref_raw.get("name"),
             position=ref_raw.get("position"),
             side=ref_raw.get("side"),
+            team=ref_raw.get("team"),
         )
     quote = raw.get("raw_quote") or full_text
     return ClassifiedNote(
         raw_quote=quote,
         is_team_note=is_team,
-        sentiment=None if is_team else normalize_sentiment(raw.get("sentiment")),
-        skill_category=None if is_team else normalize_skill(raw.get("skill_category")),
         player_ref=ref,
         confidence=float(raw.get("confidence", 0.5)),
     )

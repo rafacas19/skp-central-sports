@@ -1,17 +1,13 @@
 """AI provider layer.
 
-A single swappable interface (`AIProvider`) covers the three intelligence tasks:
-transcription, lineup-image parsing, and note classification. Concrete
-implementations: `MockAIProvider` (no keys, deterministic) and `RealAIProvider`
-(Claude + Whisper). `get_provider()` picks based on config.
+A single swappable interface (`AIProvider`) covers the intelligence tasks:
+transcription, note classification (identity extraction), and the cross-match
+player summary. Concrete implementations: `MockAIProvider` (no keys,
+deterministic) and `RealAIProvider` (Claude + Whisper). `get_provider()` picks
+based on config.
 """
 
-from .base import (
-    AIProvider,
-    ClassifiedNote,
-    PlayerMatch,
-    ParsedPlayer,
-)
+from .base import AIProvider, ClassifiedNote, PlayerMatch
 from .mock import MockAIProvider
 
 
@@ -31,7 +27,6 @@ __all__ = [
     "AIProvider",
     "ClassifiedNote",
     "PlayerMatch",
-    "ParsedPlayer",
     "MockAIProvider",
     "get_provider",
 ]

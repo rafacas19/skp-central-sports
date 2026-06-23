@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from telegram import (
@@ -35,18 +36,17 @@ from telegram.ext import (
 
 from .ai import get_provider
 from .config import settings
-from .models import HOME, Player, Session
-from .report import build_csv, build_summary
+from .models import HOME, Session
+from .report import build_csv, build_player_report, build_summary
 from .service import ScoutingService
 from .storage import Storage
-from .taxonomy import SENTIMENT_POSITIVE
 
 logger = logging.getLogger(__name__)
 
-# Keys for per-chat transient state (bot_data / user_data).
-# One message can produce several ambiguous notes, so we hold a QUEUE of them and
-# resolve one at a time: a list of (ClassifiedNote, list[Player]) tuples.
-_PENDING_QUEUE = "pending_disambiguation_queue"
+# Per-chat transient state (user_data). All pending interactive states live in
+# ONE FIFO list of typed entries so the team-ambiguity ask, future merge-confirm,
+# etc. never collide. Each entry is a dict {"kind": ..., ...payload}.
+_PENDING = "pending"
 
 
 # ── helpers ─────────────────────────────────────────────────────────────
@@ -54,37 +54,22 @@ def _svc(context: ContextTypes.DEFAULT_TYPE) -> ScoutingService:
     return context.application.bot_data["service"]
 
 
-def _roster_text(session: Session) -> str:
-    lines = ["*Alineación detectada — por favor confirma:*", ""]
-    for side, name in ((HOME, session.home_team), ("away", session.away_team)):
-        lines.append(f"*{name}* ({'Local' if side == HOME else 'Visitante'})")
-        for p in session.players:
-            if p.side == side:
-                num = f"#{p.number}" if p.number is not None else "#?"
-                pos = f" ({p.position})" if p.position else ""
-                lines.append(f"  {num} {p.name}{pos}")
-        lines.append("")
-    lines.append("Pulsa *Confirmar* si es correcta. Si falta un equipo, envía otra")
-    lines.append("foto y se añadirá. También puedes corregir por texto")
-    lines.append("(p. ej. `#10 es Pérez` o `visitante #8 posición CM`).")
-    return "\n".join(lines)
+# Short codes for decision buttons (callback_data has a tight length budget).
+_DECISION_CODES = {
+    "watch": "Seguir observando",
+    "advance": "Avanzar",
+    "discard": "Descartar",
+}
 
 
-def _confirm_keyboard() -> InlineKeyboardMarkup:
+def _decision_keyboard(prospect_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("✅ Confirmar alineación", callback_data="confirm_roster")]]
+        [
+            [InlineKeyboardButton("👀 Seguir observando", callback_data=f"decision:{prospect_id}:watch")],
+            [InlineKeyboardButton("⬆️ Avanzar", callback_data=f"decision:{prospect_id}:advance")],
+            [InlineKeyboardButton("🗑️ Descartar", callback_data=f"decision:{prospect_id}:discard")],
+        ]
     )
-
-
-def _candidate_keyboard(candidates: list[Player]) -> InlineKeyboardMarkup:
-    rows = []
-    for p in candidates[:8]:
-        side = "🏠" if p.side == HOME else "🚩"
-        num = f"#{p.number}" if p.number is not None else "#?"
-        label = f"{side} {num} {p.name}"
-        rows.append([InlineKeyboardButton(label, callback_data=f"pick:{p.id}")])
-    rows.append([InlineKeyboardButton("🚫 Omitir / no está en la lista", callback_data="pick:skip")])
-    return InlineKeyboardMarkup(rows)
 
 
 # ── commands ────────────────────────────────────────────────────────────
@@ -102,31 +87,48 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_newmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     arg = " ".join(context.args) if context.args else ""
-    home, away, label = _parse_match_arg(arg)
+    home, away, label, meta = _parse_match_metadata(arg)
     if not home or not away:
         await update.message.reply_text(
-            "Uso: `/nuevo Equipo Local vs Equipo Visitante [| etiqueta]`\n"
-            "Ejemplo: `/nuevo Boca vs River | Liga, jornada 12`",
+            "Uso: `/nuevo Equipo Local vs Equipo Visitante`\n"
+            "Opcional: `| competición=Liga | fecha=2026-06-20 | sede=Estadio`\n"
+            "Ejemplo: `/nuevo Millonarios vs América | competición=Liga`",
             parse_mode="Markdown",
         )
         return
 
-    session, existing = await _svc(context).start_session(chat_id, home, away, label)
+    # No date given → assume today.
+    if "match_date" not in meta:
+        from datetime import datetime, timezone
+
+        meta["match_date"] = datetime.now(timezone.utc)
+
+    session, existing = await _svc(context).start_session(
+        chat_id, home, away, label, **meta
+    )
     if existing is not None:
+        # One active match per scout: offer to close the current one first.
+        context.user_data["pending_newmatch"] = (home, away, label, meta)
         await update.message.reply_text(
-            f"⚠️ Ya tienes una sesión activa: "
+            f"⚠️ Ya tienes un partido activo: "
             f"*{existing.home_team} vs {existing.away_team}*.\n"
-            "Finalízala con /fin antes de iniciar otra.",
+            "¿Quieres cerrarlo y empezar el nuevo?",
             parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("✅ Cerrar y empezar", callback_data="newmatch:close")],
+                    [InlineKeyboardButton("🚫 Cancelar", callback_data="newmatch:cancel")],
+                ]
+            ),
         )
         return
 
     await update.message.reply_text(
-        f"🆕 Sesión iniciada: *{home} vs {away}*"
+        f"🆕 Partido iniciado: *{home} vs {away}*"
         + (f"\n_{label}_" if label else "")
-        + "\n\n📸 Ahora envía una *foto de la alineación* (puedes mandar una por "
-        "equipo). O, si solo quieres seguir a algún jugador, escríbelos con "
-        "`/jugadores local: 10 Messi DC, 7 Di María; visitante: 5 Ramos`.",
+        + "\n\nYa puedes enviar observaciones por texto o voz, p. ej. "
+        "`América, #7, extremo, muy rápido en el 1vs1`. "
+        "Finaliza con /finalizar.",
         parse_mode="Markdown",
     )
 
@@ -153,88 +155,251 @@ async def cmd_endmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
-async def cmd_manual_lineup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Manual lineup: stage a partial roster from a free-text list, e.g.
-
-        /jugadores local: 10 Messi DC, 7 Di María; visitante: 5 Ramos
-
-    For when the scout only wants to watch one or two players, not the whole
-    team. Players are staged (appended) and the scout can confirm a partial
-    roster — even a single player — then start capturing.
-    """
-    session = await _require_session(update, context)
-    if session is None:
-        return
-    # Parse from the raw text, not context.args: arg-splitting on spaces would
-    # break multi-word names ("Di María").
-    raw = update.message.text or ""
-    raw = raw.split(maxsplit=1)[1] if " " in raw.strip() else ""
-    entries = _parse_manual_lineup(raw)
-    if not entries:
-        await update.message.reply_text(
-            "Uso: `/jugadores local: 10 Messi DC, 7 Di María; visitante: 5 Ramos`\n"
-            "El número y la posición son opcionales (`local: Messi`).",
-            parse_mode="Markdown",
-        )
-        return
-
+async def cmd_set_scout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/yo <nombre> — set the scout's display name (per chat), used in reports."""
+    chat_id = update.effective_chat.id
     svc = _svc(context)
-    for side, number, name, position in entries:
-        await svc.add_missing_player(session, side, number, name, position)
-    session = await svc.storage.get_session(session.id)
-    await update.message.reply_text(
-        _roster_text(session), parse_mode="Markdown", reply_markup=_confirm_keyboard()
-    )
-
-
-async def cmd_addplayer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Roster gap: /addplayer home 14 Gómez CB"""
-    session = await _require_session(update, context)
-    if session is None:
-        return
-    args = context.args or []
-    if len(args) < 3:
+    name = " ".join(context.args).strip() if context.args else ""
+    if not name:
+        current = await svc.storage.get_scout_name(chat_id)
         await update.message.reply_text(
-            "Uso: `/addplayer <local|visitante> <número> <nombre> [posición]`",
+            f"Tu nombre de scout: *{current}*." if current
+            else "Uso: `/yo <tu nombre>` para identificarte en los informes.",
             parse_mode="Markdown",
         )
         return
-    side = _parse_side(args[0])
-    try:
-        number = int(args[1])
-    except ValueError:
-        await update.message.reply_text("El número debe ser un entero.")
+    await svc.storage.set_scout_name(chat_id, name)
+    # If a match is active, stamp the name onto it too.
+    session = await svc.storage.get_active_session(chat_id)
+    if session is not None:
+        await svc.storage.update_session_meta(session.id, scout_name=name)
+    await update.message.reply_text(f"👤 Hola, *{name}*. Te identificaré en los informes.", parse_mode="Markdown")
+
+
+async def cmd_team_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/equipo [local|visitante] <texto> — a team-level tactical note."""
+    session = await _require_session(update, context)
+    if session is None:
         return
-    name = args[2]
-    position = args[3] if len(args) > 3 else None
-    await _svc(context).add_missing_player(session, side, number, name, position)
-    await update.message.reply_text(f"➕ Añadido {_side_label(side)} #{number} {name}.")
+    raw = update.message.text or ""
+    body = raw.split(maxsplit=1)[1].strip() if " " in raw.strip() else ""
+    if not body:
+        await update.message.reply_text(
+            "Uso: `/equipo <nota táctica>` (opcional: empieza con local/visitante).",
+            parse_mode="Markdown",
+        )
+        return
+    team = None
+    first = body.split(maxsplit=1)
+    if first and first[0].lower() in ("local", "visitante", "home", "away"):
+        side = _parse_side(first[0])
+        team = session.home_team if side == HOME else session.away_team
+        body = first[1] if len(first) > 1 else ""
+    await _svc(context).add_team_note(session, body, team)
+    await update.message.reply_text("📝 Nota de equipo registrada.")
 
 
-async def cmd_target(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Flag a target player: /target home 10"""
+async def cmd_rate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/valorar <nombre> <nota> — manual rating (1–10, decimales permitidos)."""
     session = await _require_session(update, context)
     if session is None:
         return
     args = context.args or []
     if len(args) < 2:
         await update.message.reply_text(
-            "Uso: `/target <local|visitante> <número>`", parse_mode="Markdown"
+            "Uso: `/valorar <nombre> <nota>` — p. ej. `/valorar Castro 7.5`.",
+            parse_mode="Markdown",
         )
         return
-    side = _parse_side(args[0])
+    score_raw = args[-1].replace(",", ".")
+    name = " ".join(args[:-1])
     try:
-        number = int(args[1])
+        score = float(score_raw)
     except ValueError:
-        await update.message.reply_text("El número debe ser un entero.")
+        await update.message.reply_text("La nota debe ser un número (1–10).")
         return
-    match = [p for p in session.players if p.side == side and p.number == number]
-    if not match:
-        await update.message.reply_text("Ese jugador no está en la alineación.")
+    if not (1.0 <= score <= 10.0):
+        await update.message.reply_text("La nota debe estar entre 1 y 10.")
         return
-    await _svc(context).set_target(match[0], True)
+    result = await _svc(context).rate_by_name(session.agent_chat_id, name, score)
+    if isinstance(result, list):
+        if not result:
+            await update.message.reply_text(f"No tengo a ningún jugador llamado *{name}*.", parse_mode="Markdown")
+        else:
+            names = ", ".join(p.name for p in result)
+            await update.message.reply_text(
+                f"Hay varios jugadores que coinciden ({names}). Sé más específico."
+            )
+        return
     await update.message.reply_text(
-        f"⭐ {_side_label(side)} #{number} {match[0].name} marcado como objetivo."
+        f"⭐ *{result.name}*: valoración {score:g}.", parse_mode="Markdown"
+    )
+
+
+async def cmd_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/foto — register an unknown player by photo. Asks for the photo next."""
+    session = await _require_session(update, context)
+    if session is None:
+        return
+    context.user_data["awaiting_photo_obs"] = True
+    await update.message.reply_text(
+        "📸 Envía la foto del jugador. Luego mándame una observación y crearé un "
+        "perfil temporal que podrás editar más tarde."
+    )
+
+
+async def cmd_player_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/reporte_jugador <nombre> — accumulated cross-match report + AI summary."""
+    chat_id = update.effective_chat.id
+    svc = _svc(context)
+    name = " ".join(context.args).strip() if context.args else ""
+    if not name:
+        await update.message.reply_text(
+            "Uso: `/reporte_jugador <nombre>`.", parse_mode="Markdown"
+        )
+        return
+
+    result = await svc.player_report(chat_id, name)
+    if isinstance(result, list):
+        if not result:
+            await update.message.reply_text(
+                f"No tengo observaciones de *{name}*.", parse_mode="Markdown"
+            )
+        else:
+            names = ", ".join(p.name for p in result)
+            await update.message.reply_text(
+                f"Hay varios jugadores que coinciden ({names}). Sé más específico."
+            )
+        return
+
+    prospect, observations, summary = result
+    await update.message.reply_text(
+        build_player_report(prospect, observations, summary),
+        parse_mode="Markdown",
+        reply_markup=_decision_keyboard(prospect.id),
+    )
+
+
+# Accept short forms for /decision.
+_DECISION_ALIASES = {
+    "pendiente": "Pendiente",
+    "seguir": "Seguir observando",
+    "observar": "Seguir observando",
+    "avanzar": "Avanzar",
+    "descartar": "Descartar",
+}
+
+
+async def cmd_decision(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/decision <nombre> <estado> — Pendiente | Seguir observando | Avanzar | Descartar."""
+    chat_id = update.effective_chat.id
+    args = context.args or []
+    if len(args) < 2:
+        await update.message.reply_text(
+            "Uso: `/decision <nombre> <pendiente|seguir|avanzar|descartar>`.",
+            parse_mode="Markdown",
+        )
+        return
+    status_word = args[-1].lower()
+    status = _DECISION_ALIASES.get(status_word)
+    if status is None and " ".join(args[-2:]).lower() == "seguir observando":
+        status = "Seguir observando"
+        name = " ".join(args[:-2])
+    else:
+        name = " ".join(args[:-1])
+    if status is None:
+        await update.message.reply_text(
+            "Estado no válido. Usa: pendiente, seguir, avanzar o descartar."
+        )
+        return
+    result = await _svc(context).set_decision_by_name(chat_id, name, status)
+    if isinstance(result, list):
+        msg = (
+            f"No tengo a *{name}*." if not result
+            else "Hay varios jugadores que coinciden. Sé más específico."
+        )
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return
+    await update.message.reply_text(
+        f"✅ {result.name}: decisión *{status}*.", parse_mode="Markdown"
+    )
+
+
+async def cmd_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/editar <nombre> campo=valor … — edit a player (nombre/equipo/posicion/
+    numero/edad/altura/nota). Naming a temporary player may trigger a merge ask."""
+    chat_id = update.effective_chat.id
+    raw = update.message.text or ""
+    body = raw.split(maxsplit=1)[1].strip() if " " in raw.strip() else ""
+    name, fields = _parse_edit(body)
+    if not name or not fields:
+        await update.message.reply_text(
+            "Uso: `/editar <nombre> campo=valor` — campos: nombre, equipo, "
+            "posicion, numero, edad, altura, nota.",
+            parse_mode="Markdown",
+        )
+        return
+
+    svc = _svc(context)
+    result = await svc.edit_prospect(chat_id, name, fields)
+    if isinstance(result, list):
+        msg = (
+            f"No encontré a *{name}*." if not result
+            else "Hay varios jugadores que coinciden. Sé más específico."
+        )
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return
+
+    # If we just gave a name, check for a likely duplicate and ask before merging.
+    if "name" in fields:
+        dup = await svc.detect_duplicate(chat_id, result.name, result.team, result.id)
+        if dup is not None:
+            context.user_data[_PENDING] = context.user_data.get(_PENDING, [])
+            await update.message.reply_text(
+                f"Encontré un jugador parecido:\n\n"
+                f"*{dup.name}* - {dup.team or '?'} - {dup.position or '?'}\n\n"
+                f"¿Es el mismo jugador que *{result.name}*?",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("✅ Sí, unir", callback_data=f"merge:{dup.id}:{result.id}")],
+                        [InlineKeyboardButton("🚫 No, crear nuevo", callback_data="merge:cancel")],
+                    ]
+                ),
+            )
+            return
+    await update.message.reply_text(f"✏️ *{result.name}* actualizado.", parse_mode="Markdown")
+
+
+async def cmd_merge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/unir <nombre1> | <nombre2> — merge two player records (asks to confirm)."""
+    chat_id = update.effective_chat.id
+    raw = update.message.text or ""
+    body = raw.split(maxsplit=1)[1] if " " in raw.strip() else ""
+    if "|" not in body:
+        await update.message.reply_text(
+            "Uso: `/unir <nombre1> | <nombre2>`.", parse_mode="Markdown"
+        )
+        return
+    n1, n2 = (s.strip() for s in body.split("|", 1))
+    svc = _svc(context)
+    m1 = await svc.storage.find_prospects_by_name(chat_id, n1)
+    m2 = await svc.storage.find_prospects_by_name(chat_id, n2)
+    if len(m1) != 1 or len(m2) != 1:
+        await update.message.reply_text(
+            "No pude identificar a ambos jugadores sin ambigüedad."
+        )
+        return
+    keep, drop = m1[0], m2[0]
+    await update.message.reply_text(
+        f"¿Unir *{drop.name}* en *{keep.name}*? Se conservará *{keep.name}*.",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("✅ Sí, unir", callback_data=f"merge:{keep.id}:{drop.id}")],
+                [InlineKeyboardButton("🚫 Cancelar", callback_data="merge:cancel")],
+            ]
+        ),
     )
 
 
@@ -251,33 +416,24 @@ async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ── media + text capture ────────────────────────────────────────────────
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Lineup image → parse → MERGE into the staged roster → show confirm keyboard.
-
-    A lineup may arrive across several photos (one team each). Each photo before
-    confirmation is merged into what's already staged, so a second photo adds the
-    other team instead of wiping the first.
-    """
+    """A photo. Only meaningful right after /foto: it creates a temporary unknown
+    player; the NEXT observation attaches to them. A bare photo (no pending /foto)
+    gets a gentle nudge — there is no lineup pre-seeding."""
     session = await _require_session(update, context)
     if session is None:
         return
-    svc = _svc(context)
-
-    await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-    photo = update.message.photo[-1]
-    tg_file = await photo.get_file()
-    image_bytes = bytes(await tg_file.download_as_bytearray())
-
-    parsed = await svc.parse_and_stage_roster(image_bytes, "image/jpeg")
-    if not parsed:
+    if not context.user_data.get("awaiting_photo_obs"):
         await update.message.reply_text(
-            "No pude leer ningún jugador en esa imagen. Prueba con una foto más "
-            "nítida, o añade jugadores manualmente con /addplayer."
+            "📸 Para registrar a un jugador desconocido por foto, primero envía /foto."
         )
         return
-    await svc.merge_roster(session, parsed)
-    session = await svc.storage.get_session(session.id)
+
+    context.user_data.pop("awaiting_photo_obs", None)
+    file_id = update.message.photo[-1].file_id
+    prospect = await _svc(context).attach_photo(session, None, file_id)
+    context.user_data["photo_prospect_id"] = prospect.id
     await update.message.reply_text(
-        _roster_text(session), parse_mode="Markdown", reply_markup=_confirm_keyboard()
+        "✅ Foto guardada. Ahora envía la observación de este jugador."
     )
 
 
@@ -292,22 +448,15 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tg_file = await voice.get_file()
     audio_bytes = bytes(await tg_file.download_as_bytearray())
     text = await svc.transcribe(audio_bytes, "audio/ogg")
-    await _handle_capture(update, context, session, text)
+    await _handle_capture(update, context, session, text, source="voice")
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Free text: either a roster correction (pre-confirm) or an observation."""
+    """Free text → an observation. No lineup gate: capture starts immediately."""
     session = await _require_session(update, context)
     if session is None:
         return
-    text = update.message.text.strip()
-
-    # Before roster is confirmed, treat text as a roster correction note.
-    if not session.roster_confirmed:
-        await _apply_roster_correction(update, context, session, text)
-        return
-
-    await _handle_capture(update, context, session, text)
+    await _handle_capture(update, context, session, update.message.text.strip())
 
 
 async def _handle_capture(
@@ -315,9 +464,24 @@ async def _handle_capture(
     context: ContextTypes.DEFAULT_TYPE,
     session: Session,
     text: str,
+    source: str = "text",
 ) -> None:
     svc = _svc(context)
-    results = await svc.capture_notes(session, text)
+
+    # If a /foto profile is awaiting its observation, attach this one to it and
+    # don't run identity resolution (the player is unknown by design).
+    photo_pid = context.user_data.pop("photo_prospect_id", None)
+    if photo_pid is not None:
+        prospect = await svc.storage.get_prospect(photo_pid)
+        if prospect is not None:
+            await svc.capture_to_prospect(session, text, prospect, source=source)
+            await update.message.reply_text(
+                "✅ Observación guardada para el jugador de la foto "
+                "(perfil temporal — edítalo con /editar cuando sepas quién es)."
+            )
+            return
+
+    results = await svc.capture_notes(session, text, source=source)
 
     if not results:
         await update.message.reply_text(
@@ -326,8 +490,8 @@ async def _handle_capture(
         )
         return
 
-    # Confident notes (player or team) are already stored — acknowledge the count.
-    stored = [r for r in results if not r.needs_disambiguation]
+    # Stored notes (player or team) — acknowledge the count.
+    stored = [r for r in results if r.observation is not None]
     if stored:
         n = len(stored)
         if n == 1 and stored[0].classified.is_team_note:
@@ -335,45 +499,48 @@ async def _handle_capture(
                 "📝 ✅", reply_to_message_id=update.message.message_id
             )
         elif n == 1:
-            obs = stored[0].observation
-            mark = "👍" if obs and obs.sentiment == SENTIMENT_POSITIVE else "👎"
-            await update.message.reply_text("✅" + mark)
+            await update.message.reply_text("✅")
         else:
             await update.message.reply_text(f"✅ {n} notas registradas")
 
-    # Ambiguous notes are queued and asked one at a time (only when unsure).
-    ambiguous = [(r.classified, r.candidates) for r in results if r.needs_disambiguation]
-    if ambiguous:
-        queue = context.user_data.setdefault(_PENDING_QUEUE, [])
-        was_empty = not queue
-        queue.extend(ambiguous)
-        if was_empty:
-            await _ask_next_pending(update.effective_chat.id, context)
+    # Number-only notes with no team → queue a team-choice ask (don't guess).
+    pending = context.user_data.setdefault(_PENDING, [])
+    was_empty = not pending
+    for r in results:
+        if r.needs_team_choice:
+            pending.append(
+                {
+                    "kind": "team_ambiguity",
+                    "classified": r.classified,
+                    "teams": r.team_candidates,
+                    "source": source,
+                }
+            )
+    if was_empty and pending:
+        await _ask_next_pending(update.effective_chat.id, context)
 
 
 async def _ask_next_pending(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send the disambiguation prompt for the note at the head of the queue.
+    """Prompt for the pending interactive state at the head of the FIFO list.
 
-    Sends a fresh message (works whether triggered by an incoming note or after a
-    previous pick was finalized). Leaves the head on the queue until it's answered.
-    """
-    queue = context.user_data.get(_PENDING_QUEUE, [])
-    if not queue:
+    Sends a fresh message; leaves the head in place until it's answered."""
+    pending = context.user_data.get(_PENDING, [])
+    if not pending:
         return
-    classified, candidates = queue[0]
-    quote = classified.raw_quote
-    if candidates:
+    entry = pending[0]
+    if entry["kind"] == "team_ambiguity":
+        classified = entry["classified"]
+        number = classified.player_ref.number if classified.player_ref else "?"
+        teams = entry["teams"]
+        rows = [
+            [InlineKeyboardButton(f"#{number} de {t}", callback_data=f"team:{i}")]
+            for i, t in enumerate(teams)
+        ]
+        rows.append([InlineKeyboardButton("🚫 Omitir", callback_data="team:skip")])
         await context.bot.send_message(
             chat_id,
-            f"🤔 ¿A quién te refieres? \"{quote}\"",
-            reply_markup=_candidate_keyboard(candidates),
-        )
-    else:
-        await context.bot.send_message(
-            chat_id,
-            f"🤔 No pude identificar de qué jugador habla \"{quote}\". "
-            "Responde con un número (p. ej. `#8`) o un nombre.",
-            parse_mode="Markdown",
+            f"🤔 ¿Te refieres al #{number} de {teams[0]} o al #{number} de {teams[1]}?",
+            reply_markup=InlineKeyboardMarkup(rows),
         )
 
 
@@ -384,100 +551,86 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     data = query.data
     svc = _svc(context)
     chat_id = update.effective_chat.id
+
+    # Decision / merge buttons don't need an active match.
+    if data.startswith("decision:"):
+        await _resolve_decision(query, context, data)
+        return
+    if data.startswith("merge:"):
+        await _resolve_merge(query, context, data)
+        return
+
     session = await svc.storage.get_active_session(chat_id)
     if session is None:
         await query.edit_message_text("La sesión ya no está activa.")
         return
 
-    if data == "confirm_roster":
-        await svc.confirm_roster(session)
-        await query.edit_message_text(
-            "✅ Alineación confirmada. Ya puedes enviar tus observaciones (voz o texto)."
-        )
+    if data.startswith("team:"):
+        await _resolve_team_choice(query, context, session, data.split(":", 1)[1])
+    elif data.startswith("newmatch:"):
+        await _resolve_newmatch(query, context, session, data.split(":", 1)[1])
+
+
+async def _resolve_decision(query, context, data: str) -> None:
+    """Handle a decision button: 'decision:<prospect_id>:<code>'."""
+    _, pid, code = data.split(":", 2)
+    status = _DECISION_CODES.get(code)
+    if status is None:
         return
+    await _svc(context).set_decision_by_id(int(pid), status)
+    await query.edit_message_text(f"✅ Decisión registrada: {status}.")
 
-    if data.startswith("pick:"):
-        await _resolve_pick(query, context, session, data.split(":", 1)[1])
+
+async def _resolve_merge(query, context, data: str) -> None:
+    """Handle a merge button: 'merge:<keep_id>:<drop_id>' or 'merge:cancel'."""
+    parts = data.split(":")
+    if parts[1] == "cancel":
+        await query.edit_message_text("Ok, los mantengo como jugadores distintos.")
+        return
+    keep_id, drop_id = int(parts[1]), int(parts[2])
+    await _svc(context).merge(keep_id, drop_id)
+    await query.edit_message_text("🔗 Jugadores unidos.")
 
 
-async def _resolve_pick(query, context, session: Session, picked: str) -> None:
-    queue: list = context.user_data.get(_PENDING_QUEUE, [])
-    if not queue:
+async def _resolve_newmatch(query, context, session: Session, action: str) -> None:
+    """Resolve the 'close current match and start a new one?' prompt."""
+    svc = _svc(context)
+    pending = context.user_data.pop("pending_newmatch", None)
+    if action == "cancel" or pending is None:
+        await query.edit_message_text("Ok, sigo con el partido actual.")
+        return
+    home, away, label, meta = pending
+    await svc.end_session(session)
+    new_session, _ = await svc.start_session(
+        session.agent_chat_id, home, away, label, **meta
+    )
+    await query.edit_message_text(
+        f"🏁 Partido anterior cerrado.\n🆕 Partido iniciado: {home} vs {away}. "
+        "Ya puedes enviar observaciones."
+    )
+
+
+async def _resolve_team_choice(query, context, session: Session, picked: str) -> None:
+    pending: list = context.user_data.get(_PENDING, [])
+    entry = pending[0] if pending and pending[0]["kind"] == "team_ambiguity" else None
+    if entry is None:
         await query.edit_message_text("No hay nada pendiente.")
         return
-    classified, candidates = queue[0]
 
     if picked == "skip":
         await query.edit_message_text("🚫 Omitida — nota descartada.")
     else:
-        player = next((p for p in candidates if str(p.id) == picked), None)
-        if player is None:
-            await query.edit_message_text("No se encontró ese jugador.")
-            return
-        await _svc(context).resolve_disambiguation(session, classified, player)
-        await query.edit_message_text(
-            f"✅ Registrada para #{player.number} {player.name}."
+        team = entry["teams"][int(picked)]
+        await _svc(context).resolve_team_choice(
+            session, entry["classified"], team, source=entry.get("source", "text")
         )
+        await query.edit_message_text(f"✅ Registrada para {team}.")
 
-    # Done with the head; advance the queue (a fresh prompt for the next, if any).
-    queue.pop(0)
-    if queue:
+    pending.pop(0)
+    if pending:
         await _ask_next_pending(query.message.chat_id, context)
     else:
-        context.user_data.pop(_PENDING_QUEUE, None)
-
-
-# ── roster correction parsing ─────────────────────────────────────────────
-async def _apply_roster_correction(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, session: Session, text: str
-) -> None:
-    """Lightweight free-text roster fixes before confirmation.
-
-    Supported (ES + EN): '#10 es Pérez' / '#10 is Pérez' (rename),
-    'visitante #14 Gómez CB' / 'away #14 Gómez CB' (add/replace).
-    Anything unparseable gets a gentle nudge.
-    """
-    import re
-
-    svc = _svc(context)
-    # Rename: accepts "es" (ES) or "is" (EN) as the linking verb.
-    m = re.match(r"#?(\d{1,2})\s+(?:es|is)\s+(.+)", text, re.IGNORECASE)
-    if m:
-        number, new_name = int(m.group(1)), m.group(2).strip()
-        for p in session.players:
-            if p.number == number:
-                p.name = new_name
-        await svc.storage.replace_roster(session.id, list(session.players))
-        await update.message.reply_text(
-            f"✏️ Actualizado #{number} → {new_name}.",
-            reply_markup=_confirm_keyboard(),
-        )
-        return
-
-    # Add/replace: accepts local/visitante (ES) or home/away (EN) as the side.
-    m = re.match(
-        r"(local|visitante|home|away)\s+#?(\d{1,2})\s+(\S+)\s*(\S+)?",
-        text,
-        re.IGNORECASE,
-    )
-    if m:
-        side = _parse_side(m.group(1))
-        number, name = int(m.group(2)), m.group(3)
-        position = m.group(4)
-        await svc.add_missing_player(session, side, number, name, position)
-        await update.message.reply_text(
-            f"➕ Añadido {_side_label(side)} #{number} {name}.",
-            reply_markup=_confirm_keyboard(),
-        )
-        return
-
-    await update.message.reply_text(
-        "No entendí esa corrección. Ejemplos:\n"
-        "`#10 es Pérez`  o  `visitante #14 Gómez CB`\n"
-        "O pulsa *Confirmar* si la alineación es correcta.",
-        parse_mode="Markdown",
-        reply_markup=_confirm_keyboard(),
-    )
+        context.user_data.pop(_PENDING, None)
 
 
 # ── auto-nudge job ────────────────────────────────────────────────────────
@@ -524,80 +677,96 @@ def _parse_side(raw: str) -> str:
     return HOME  # local / home (default)
 
 
-def _side_label(side: str) -> str:
-    """Spanish label for a side, for user-facing messages."""
-    return "local" if side == HOME else "visitante"
+# Optional `| campo=valor` metadata on /nuevo. Keys are accent/case-insensitive.
+_META_KEYS = {
+    "competicion": "competition", "competición": "competition", "liga": "competition",
+    "categoria": "category", "categoría": "category",
+    "sede": "location", "estadio": "location", "lugar": "location",
+    "fecha": "match_date", "date": "match_date",
+}
 
 
-def _parse_match_arg(arg: str) -> tuple[str, str, str | None]:
-    label = None
-    if "|" in arg:
-        arg, label = arg.split("|", 1)
-        label = label.strip() or None
-    parts = arg.split(" vs ") if " vs " in arg else arg.split(" - ")
+def _parse_match_metadata(arg: str) -> tuple[str, str, str | None, dict]:
+    """Parse `/nuevo A vs B | competición=Liga | fecha=2026-06-20 | sede=X`.
+
+    Returns (home, away, label, metadata). Segments with `key=value` populate
+    metadata (competition/category/location/match_date); a plain segment with no
+    '=' is kept as the free-text label. Unparseable date → ignored."""
+    segments = [s.strip() for s in arg.split("|")]
+    head = segments[0]
+    parts = head.split(" vs ") if " vs " in head else head.split(" - ")
     if len(parts) != 2:
-        return "", "", None
-    return parts[0].strip(), parts[1].strip(), label
+        return "", "", None, {}
+    home, away = parts[0].strip(), parts[1].strip()
 
-
-def _parse_manual_lineup(raw: str) -> list[tuple[str, int | None, str, str | None]]:
-    """Parse a free-text manual lineup into (side, number, name, position) tuples.
-
-        'local: 10 Messi DC, 7 Di María; visitante: 5 Ramos'
-        → [('home', 10, 'Messi', 'DC'), ('home', 7, 'Di María', None),
-           ('away', 5, 'Ramos', None)]
-
-    Pure (no Telegram/DB), so it's unit-testable on its own. Rules:
-      - ';' separates side-segments; ',' separates players within a segment.
-      - A 'side:' prefix (local/visitante/home/away) switches the current side;
-        entries before any prefix default to home.
-      - Per entry: an optional leading '#?number', then the name, then an
-        optional trailing 2–3 letter UPPERCASE position token.
-    """
-    import re
-
-    entries: list[tuple[str, int | None, str, str | None]] = []
-    side = HOME
-    for segment in raw.split(";"):
-        segment = segment.strip()
-        if not segment:
+    label = None
+    meta: dict = {}
+    for seg in segments[1:]:
+        if not seg:
             continue
-        m = re.match(r"(local|visitante|home|away)\s*:\s*(.*)$", segment, re.IGNORECASE)
-        if m:
-            side = _parse_side(m.group(1))
-            body = m.group(2)
+        if "=" in seg:
+            key, _, value = seg.partition("=")
+            field = _META_KEYS.get(key.strip().lower())
+            value = value.strip()
+            if field == "match_date":
+                dt = _parse_date(value)
+                if dt is not None:
+                    meta["match_date"] = dt
+            elif field and value:
+                meta[field] = value
+        elif label is None:
+            label = seg or None
+    return home, away, label, meta
+
+
+def _parse_date(value: str):
+    """Parse a YYYY-MM-DD (or DD/MM/YYYY) date to an aware datetime, else None."""
+    from datetime import datetime, timezone
+
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+# /editar field aliases → Prospect attribute names.
+_EDIT_FIELDS = {
+    "nombre": "name", "name": "name",
+    "equipo": "team", "team": "team",
+    "posicion": "position", "posición": "position", "position": "position",
+    "numero": "_number_ignored", "número": "_number_ignored",  # number lives on obs, not prospect
+    "edad": "age", "age": "age",
+    "altura": "height_cm", "height": "height_cm",
+    "nota": "notes", "notes": "notes",
+}
+_EDIT_RE = re.compile(r"(\w+)\s*=\s*([^=]+?)(?=\s+\w+\s*=|$)")
+
+
+def _parse_edit(body: str) -> tuple[str, dict]:
+    """Parse '<name> campo=valor campo=valor' → (name, {attr: value}).
+
+    The name is everything before the first 'campo='. Integer fields (edad,
+    altura) are coerced; unknown / number fields are ignored."""
+    first = _EDIT_RE.search(body)
+    if not first:
+        return body.strip(), {}
+    name = body[: first.start()].strip()
+    fields: dict = {}
+    for key, value in _EDIT_RE.findall(body):
+        attr = _EDIT_FIELDS.get(key.strip().lower())
+        value = value.strip()
+        if attr is None or attr == "_number_ignored" or not value:
+            continue
+        if attr in ("age", "height_cm"):
+            try:
+                fields[attr] = int(value)
+            except ValueError:
+                continue
         else:
-            body = segment
-        for chunk in body.split(","):
-            parsed = _parse_player_chunk(chunk)
-            if parsed is not None:
-                number, name, position = parsed
-                entries.append((side, number, name, position))
-    return entries
-
-
-def _parse_player_chunk(chunk: str) -> tuple[int | None, str, str | None] | None:
-    """Parse one '10 Messi DC' style entry → (number, name, position) or None."""
-    import re
-
-    text = chunk.strip()
-    if not text:
-        return None
-    number = None
-    m = re.match(r"#?(\d{1,2})\s+(.*)$", text)
-    if m:
-        number = int(m.group(1))
-        text = m.group(2).strip()
-    position = None
-    # A trailing 2–3 letter UPPERCASE token is the position (DC, CB, GK…).
-    m = re.match(r"(.*\S)\s+([A-ZÁÉÍÓÚÑ]{2,3})$", text)
-    if m and m.group(1).strip():
-        text = m.group(1).strip()
-        position = m.group(2)
-    name = text.strip()
-    if not name:
-        return None
-    return number, name, position
+            fields[attr] = value
+    return name, fields
 
 
 # ── error handler ────────────────────────────────────────────────────────
@@ -637,10 +806,15 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("help", cmd_start))
     # Primary command names are Spanish; English names kept as hidden aliases.
     app.add_handler(CommandHandler(["nuevo", "newmatch"], cmd_newmatch))
-    app.add_handler(CommandHandler(["fin", "endmatch"], cmd_endmatch))
-    app.add_handler(CommandHandler(["jugadores", "lineup"], cmd_manual_lineup))
-    app.add_handler(CommandHandler("addplayer", cmd_addplayer))
-    app.add_handler(CommandHandler("target", cmd_target))
+    app.add_handler(CommandHandler(["finalizar", "fin", "endmatch"], cmd_endmatch))
+    app.add_handler(CommandHandler("yo", cmd_set_scout))
+    app.add_handler(CommandHandler(["equipo", "team"], cmd_team_note))
+    app.add_handler(CommandHandler(["valorar", "rate"], cmd_rate))
+    app.add_handler(CommandHandler(["foto", "photo"], cmd_photo))
+    app.add_handler(CommandHandler(["reporte_jugador", "playerreport"], cmd_player_report))
+    app.add_handler(CommandHandler(["decision", "decidir"], cmd_decision))
+    app.add_handler(CommandHandler(["editar", "edit"], cmd_edit))
+    app.add_handler(CommandHandler(["unir", "merge"], cmd_merge))
     app.add_handler(CommandHandler("undo", cmd_undo))
 
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))

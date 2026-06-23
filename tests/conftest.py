@@ -52,7 +52,8 @@ async def storage():
     # Clean slate so tests are isolated and order-independent.
     conn = Tortoise.get_connection("default")
     await conn.execute_query(
-        "TRUNCATE observations, players, sessions RESTART IDENTITY CASCADE"
+        "TRUNCATE observations, prospects, scout_profiles, sessions "
+        "RESTART IDENTITY CASCADE"
     )
     try:
         yield Storage()

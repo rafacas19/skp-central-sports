@@ -229,30 +229,25 @@ def _session_dict(session, *, include_children: bool) -> dict:
         "away_team": session.away_team,
         "label": session.label,
         "state": session.state,
-        "roster_confirmed": session.roster_confirmed,
+        "scout_name": session.scout_name,
+        "competition": session.competition,
+        "match_date": session.match_date.isoformat() if session.match_date else None,
         "created_at": session.created_at.isoformat() if session.created_at else None,
         "ended_at": session.ended_at.isoformat() if session.ended_at else None,
         "observation_count": len(session.observations),
     }
     if include_children:
-        out["players"] = [
-            {
-                "id": p.id,
-                "side": p.side,
-                "number": p.number,
-                "name": p.name,
-                "position": p.position,
-                "is_target": p.is_target,
-            }
-            for p in session.players
-        ]
         out["observations"] = [
             {
                 "id": o.id,
-                "player_id": o.player_id,
-                "side": o.side,
-                "sentiment": o.sentiment,
-                "skill_category": o.skill_category,
+                "prospect_id": o.prospect_id,
+                "is_team_note": o.is_team_note,
+                "team": o.team,
+                "player_name": o.player_name,
+                "player_number": o.player_number,
+                "player_position": o.player_position,
+                "source": o.source,
+                "rating": o.rating,
                 "raw_quote": o.raw_quote,
                 "created_at": o.created_at.isoformat() if o.created_at else None,
             }

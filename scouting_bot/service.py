@@ -7,23 +7,48 @@ unit-testable without a running bot.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
-from .ai.base import AIProvider, ClassifiedNote, ParsedPlayer, PlayerMatch
-from .models import Observation, Player, Session
+from .ai.base import AIProvider, ClassifiedNote, PlayerMatch
+from .models import Observation, Prospect, Session
 from .storage import Storage
-from .taxonomy import name_matches, normalize_name
+
+# Inline manual rating: "... valoración 7", "valoracion: 7.5", "rating 8".
+_RATING_RE = re.compile(
+    r"\b(?:valoraci[oó]n|rating|nota)\s*:?\s*(\d{1,2}(?:[.,]\d)?)\b", re.IGNORECASE
+)
+RATING_MIN, RATING_MAX = 1.0, 10.0
+
+
+def extract_inline_rating(text: str) -> tuple[str, float | None]:
+    """Pull a trailing manual rating out of an observation, if present.
+
+    "Castro valoración 7" → ("Castro", 7.0). Out-of-range (1–10) is ignored.
+    Returns (cleaned_text, rating|None). Pure — unit-testable on its own."""
+    m = _RATING_RE.search(text)
+    if not m:
+        return text, None
+    score = float(m.group(1).replace(",", "."))
+    if not (RATING_MIN <= score <= RATING_MAX):
+        return text, None
+    cleaned = (text[: m.start()] + text[m.end() :]).strip(" ,.;")
+    return cleaned, score
 
 
 @dataclass
 class CaptureResult:
-    """Outcome of processing one observation note."""
+    """Outcome of processing one observation note.
+
+    Either it was stored against a prospect (``observation`` set), or it needs a
+    team choice (``needs_team_choice`` — a number-only note where the scout didn't
+    say which team)."""
 
     observation: Observation | None
-    needs_disambiguation: bool
-    candidates: list[Player]  # populated when disambiguation is needed
     classified: ClassifiedNote
-    matched_player: Player | None
+    prospect: Prospect | None
+    needs_team_choice: bool = False
+    team_candidates: list[str] | None = None
 
 
 class ScoutingService:
@@ -34,15 +59,23 @@ class ScoutingService:
 
     # ── Session lifecycle ───────────────────────────────────────────────
     async def start_session(
-        self, agent_chat_id: int, home_team: str, away_team: str, label: str | None
+        self,
+        agent_chat_id: int,
+        home_team: str,
+        away_team: str,
+        label: str | None,
+        **metadata,
     ) -> tuple[Session | None, Session | None]:
         """Return (new_session, existing_active). If one is already active, don't
-        create another (one active session per agent)."""
+        create another (one active session per agent). Optional `metadata`:
+        competition / category / location / match_date. The persisted scout name
+        (set via /yo) is copied onto the session for reports."""
         existing = await self.storage.get_active_session(agent_chat_id)
         if existing is not None:
             return None, existing
+        scout_name = await self.storage.get_scout_name(agent_chat_id)
         session = await self.storage.create_session(
-            agent_chat_id, home_team, away_team, label
+            agent_chat_id, home_team, away_team, label, scout_name=scout_name, **metadata
         )
         return session, None
 
@@ -50,119 +83,288 @@ class ScoutingService:
         await self.storage.end_session(session.id)
         return await self.storage.get_session(session.id)
 
-    # ── Roster ──────────────────────────────────────────────────────────
-    async def parse_and_stage_roster(
-        self, image_bytes: bytes, mime_type: str
-    ) -> list[ParsedPlayer]:
-        return await self.ai.parse_lineup(image_bytes, mime_type)
-
-    async def save_roster(self, session: Session, parsed: list[ParsedPlayer]) -> None:
-        players = [
-            Player(
-                session_id=session.id,
-                side=p.side,
-                number=p.number,
-                name=p.name,
-                position=p.position,
-            )
-            for p in parsed
-        ]
-        await self.storage.replace_roster(session.id, players)
-
-    async def merge_roster(self, session: Session, parsed: list[ParsedPlayer]) -> None:
-        """Merge a freshly-parsed roster into the staged one (one team may arrive
-        on a separate photo). New (side, number) entries are added; an existing
-        (side, number) is overwritten by the new photo's name/position.
-
-        Players with no jersey number can't be keyed reliably, so they are always
-        appended rather than collapsed onto a shared (side, None) key — losing a
-        name to a silent overwrite is worse than a stray duplicate the agent can
-        fix before confirming.
-        """
-        merged: dict[tuple[str, int], Player] = {}
-        order: list[Player] = []  # preserve insertion order; holds keyed + null-num
-        for existing in session.players:
-            if existing.number is None:
-                order.append(existing)
-                continue
-            key = (existing.side, existing.number)
-            merged[key] = existing
-            order.append(existing)
-
-        for p in parsed:
-            if p.number is None:
-                order.append(
-                    Player(
-                        session_id=session.id,
-                        side=p.side,
-                        number=None,
-                        name=p.name,
-                        position=p.position,
-                    )
-                )
-                continue
-            key = (p.side, p.number)
-            if key in merged:
-                merged[key].name = p.name
-                merged[key].position = p.position
-            else:
-                new = Player(
-                    session_id=session.id,
-                    side=p.side,
-                    number=p.number,
-                    name=p.name,
-                    position=p.position,
-                )
-                merged[key] = new
-                order.append(new)
-
-        await self.storage.replace_roster(session.id, order)
-
-    async def confirm_roster(self, session: Session) -> None:
-        await self.storage.confirm_roster(session.id)
-
     # ── Capture ─────────────────────────────────────────────────────────
     async def transcribe(self, audio_bytes: bytes, mime_type: str) -> str:
         return await self.ai.transcribe_voice(audio_bytes, mime_type)
 
-    async def capture_notes(self, session: Session, text: str) -> list[CaptureResult]:
+    async def capture_notes(
+        self, session: Session, text: str, source: str = "text"
+    ) -> list[CaptureResult]:
         """Classify a message (which may qualify several players) into one or more
-        notes, storing the confident ones and flagging ambiguous ones for
-        disambiguation. 'Ask only when unsure.'"""
-        roster_parsed = [
-            ParsedPlayer(p.number, p.name, p.position, p.side) for p in session.players
-        ]
-        classified_list = await self.ai.classify_notes(text, roster_parsed)
+        observations, creating/looking-up prospects on the fly. A number-only note
+        with no team is flagged for a team choice. 'Ask only when unsure.'
+
+        An inline manual rating ("Castro valoración 7") is stripped before
+        classification and applied to the (single) note + its prospect."""
+        text, rating = extract_inline_rating(text)
+        classified_list = await self.ai.classify_notes(
+            text, session.home_team, session.away_team
+        )
+        # An inline rating only makes sense for a single-player message.
+        note_rating = rating if len(classified_list) == 1 else None
         results: list[CaptureResult] = []
         for classified in classified_list:
-            results.append(await self._process_one(session, classified))
+            results.append(
+                await self._process_one(session, classified, source, note_rating)
+            )
         return results
 
     async def _process_one(
-        self, session: Session, classified: ClassifiedNote
+        self,
+        session: Session,
+        classified: ClassifiedNote,
+        source: str,
+        rating: float | None = None,
     ) -> CaptureResult:
-        """Store one classified note (confident) or flag it for disambiguation."""
-        # Team-level note: store with no player, no disambiguation.
+        """Resolve a classified note to a prospect and store it, or ask for a team."""
+        ref = classified.player_ref
+
+        # Team-level note: store with no prospect.
         if classified.is_team_note:
-            obs = await self._store(session, classified, player=None)
-            return CaptureResult(obs, False, [], classified, None)
+            obs = await self._store(session, classified, prospect=None, source=source)
+            return CaptureResult(obs, classified, None)
 
-        matched = self._match_to_roster(session, classified.player_ref)
+        team = self._team_name(session, ref)
 
-        # Confident + uniquely matched → store silently.
-        if matched is not None and classified.confidence >= self.threshold:
-            obs = await self._store(session, classified, player=matched)
-            return CaptureResult(obs, False, [], classified, matched)
+        # Named player → stable cross-match prospect.
+        if ref and ref.name:
+            prospect = await self.storage.get_or_create_prospect(
+                session.agent_chat_id, ref.name, team, position=ref.position
+            )
+            obs = await self._store(
+                session, classified, prospect=prospect, source=source, rating=rating
+            )
+            return CaptureResult(obs, classified, prospect)
 
-        # Otherwise, gather candidates and ask the agent.
-        candidates = self._candidates(session, classified.player_ref)
-        return CaptureResult(None, True, candidates, classified, None)
+        # Number-only with a known team → temporary, match-scoped prospect.
+        if ref and ref.number is not None and team:
+            prospect = await self.storage.get_or_create_temp_prospect(
+                session.agent_chat_id, session.id, team, ref.number
+            )
+            obs = await self._store(
+                session, classified, prospect=prospect, source=source, rating=rating
+            )
+            return CaptureResult(obs, classified, prospect)
 
-    async def resolve_disambiguation(
-        self, session: Session, classified: ClassifiedNote, player: Player
+        # Number-only with NO team → ask which team (don't guess).
+        if ref and ref.number is not None:
+            return CaptureResult(
+                None,
+                classified,
+                None,
+                needs_team_choice=True,
+                team_candidates=[session.home_team, session.away_team],
+            )
+
+        # Position/other without a name or number, but a team is known → temp by team.
+        if team:
+            prospect = await self.storage.get_or_create_temp_prospect(
+                session.agent_chat_id, session.id, team, ref.number if ref else None
+            )
+            obs = await self._store(
+                session, classified, prospect=prospect, source=source, rating=rating
+            )
+            return CaptureResult(obs, classified, prospect)
+
+        # Nothing to attach to → store as an unattached note rather than block.
+        obs = await self._store(session, classified, prospect=None, source=source)
+        return CaptureResult(obs, classified, None)
+
+    async def resolve_team_choice(
+        self, session: Session, classified: ClassifiedNote, team: str, source: str = "text"
     ) -> Observation:
-        """Agent picked the player; store the previously-ambiguous note."""
-        return await self._store(session, classified, player=player)
+        """Scout picked the team for a previously number-only note; store it."""
+        number = classified.player_ref.number if classified.player_ref else None
+        prospect = await self.storage.get_or_create_temp_prospect(
+            session.agent_chat_id, session.id, team, number
+        )
+        # Pin the chosen team onto the note's identity snapshot.
+        if classified.player_ref is None:
+            classified.player_ref = PlayerMatch()
+        classified.player_ref.team = team
+        return await self._store(session, classified, prospect=prospect, source=source)
+
+    def _team_name(self, session: Session, ref: PlayerMatch | None) -> str | None:
+        """The actual team name for a note: an explicit team, else mapped from side."""
+        if ref is None:
+            return None
+        if ref.team:
+            return ref.team
+        if ref.side == "home":
+            return session.home_team
+        if ref.side == "away":
+            return session.away_team
+        return None
+
+    # ── Team notes / ratings / photos (Phase 3) ─────────────────────────
+    async def add_team_note(
+        self, session: Session, text: str, team: str | None
+    ) -> Observation:
+        side = None
+        if team:
+            from .taxonomy import normalize_name
+
+            if normalize_name(team) == normalize_name(session.home_team):
+                side, team = "home", session.home_team
+            elif normalize_name(team) == normalize_name(session.away_team):
+                side, team = "away", session.away_team
+        obs = Observation(
+            session_id=session.id,
+            is_team_note=True,
+            team=team,
+            side=side,
+            source="text",
+            raw_quote=text,
+        )
+        return await self.storage.add_observation(obs)
+
+    async def set_rating(self, prospect: Prospect, score: float) -> None:
+        await self.storage.update_prospect(prospect.id, latest_rating=score)
+        prospect.latest_rating = score  # keep the in-memory object consistent
+
+    async def set_decision_by_id(self, prospect_id: int, status: str) -> None:
+        await self.storage.update_prospect(prospect_id, decision_status=status)
+
+    async def set_decision_by_name(
+        self, chat_id: int, name: str, status: str
+    ) -> Prospect | list[Prospect]:
+        matches = await self.storage.find_prospects_by_name(chat_id, name)
+        if len(matches) == 1:
+            await self.storage.update_prospect(matches[0].id, decision_status=status)
+            matches[0].decision_status = status
+            return matches[0]
+        return matches
+
+    async def edit_prospect(
+        self, chat_id: int, name: str, fields: dict
+    ) -> Prospect | list[Prospect]:
+        """Edit a prospect's fields by name. Renaming recomputes the identity key
+        and clears the temporary flag (a named player is no longer 'unknown')."""
+        from .taxonomy import normalize_name
+
+        matches = await self.storage.find_prospects_by_name(chat_id, name)
+        # A temporary prospect won't be found by name (it has none); allow editing
+        # the most recent temporary one when the scout is naming an unknown player.
+        if not matches and "name" in fields:
+            matches = await self.storage.recent_temp_prospects(chat_id)
+        if len(matches) != 1:
+            return matches
+
+        prospect = matches[0]
+        updates = dict(fields)
+        if "name" in updates:
+            updates["normalized_name"] = normalize_name(updates["name"])
+            updates["is_temporary"] = False
+        if "team" in updates:
+            updates["normalized_team"] = normalize_name(updates["team"] or "")
+        await self.storage.update_prospect(prospect.id, **updates)
+        for k, v in updates.items():
+            setattr(prospect, k, v)
+        return prospect
+
+    async def detect_duplicate(
+        self, chat_id: int, name: str, team: str | None, exclude_id: int
+    ) -> Prospect | None:
+        """A different existing prospect whose name fuzzily matches (same team)."""
+        from .taxonomy import name_matches, normalize_name
+
+        for p in await self.storage.find_prospects_by_name(chat_id, name):
+            if p.id == exclude_id:
+                continue
+            same_team = (not team) or (
+                normalize_name(p.team or "") == normalize_name(team)
+            )
+            if same_team and name_matches(name, p.name):
+                return p
+        return None
+
+    async def merge(self, keep_id: int, drop_id: int) -> None:
+        await self.storage.merge_prospects(keep_id, drop_id)
+
+    async def rate_by_name(
+        self, chat_id: int, name: str, score: float
+    ) -> Prospect | list[Prospect]:
+        """Apply a rating by player name. Returns the rated prospect, or a list of
+        candidates when the name is ambiguous (so the caller can ask)."""
+        matches = await self.storage.find_prospects_by_name(chat_id, name)
+        if len(matches) == 1:
+            await self.set_rating(matches[0], score)  # mutates in place
+            return matches[0]
+        return matches  # 0 or >1 → caller handles
+
+    async def attach_photo(
+        self, session: Session, team: str | None, file_id: str
+    ) -> Prospect:
+        """Create a temporary unknown-player prospect carrying a photo file_id."""
+        prospect = await self.storage.get_or_create_temp_prospect(
+            session.agent_chat_id, session.id, team, None
+        )
+        await self.storage.update_prospect(prospect.id, photo_file_id=file_id)
+        prospect.photo_file_id = file_id  # keep the in-memory object consistent
+        return prospect
+
+    async def player_report(
+        self, chat_id: int, name: str
+    ) -> tuple[Prospect, list[Observation], str] | list[Prospect]:
+        """Build the inputs for an accumulated player report. Returns
+        (prospect, observations, ai_summary), or a list of candidates when the
+        name is ambiguous / not found (the caller asks or reports 'none')."""
+        matches = await self.storage.find_prospects_by_name(chat_id, name)
+        if len(matches) != 1:
+            return matches
+        prospect = matches[0]
+        observations = await self.storage.observations_for_prospect(
+            chat_id, prospect.id
+        )
+        payload = [self._obs_to_dict(o) for o in observations]
+        summary = await self.ai.summarize_player(payload)
+        return prospect, observations, summary
+
+    def _obs_to_dict(self, o: Observation) -> dict:
+        session = getattr(o, "session", None)
+        team = o.team or ""
+        return {
+            "date": o.created_at.strftime("%Y-%m-%d") if o.created_at else "",
+            "match": (
+                f"{session.home_team} vs {session.away_team}" if session else ""
+            ),
+            "team": team,
+            "opponent": self._opponent(session, team) if session else "",
+            "position": o.player_position or "",
+            "number": o.player_number,
+            "observation": o.raw_quote,
+            "rating": o.rating,
+            "source": o.source or "",
+            "scout": (session.scout_name if session else None) or "",
+        }
+
+    @staticmethod
+    def _opponent(session: Session, team: str) -> str:
+        from .taxonomy import normalize_name
+
+        if not team:
+            return ""
+        nt = normalize_name(team)
+        if nt == normalize_name(session.home_team):
+            return session.away_team
+        if nt == normalize_name(session.away_team):
+            return session.home_team
+        return ""
+
+    async def capture_to_prospect(
+        self, session: Session, text: str, prospect: Prospect, source: str = "text"
+    ) -> Observation:
+        """Store an observation directly against a known prospect (e.g. the temp
+        profile created by /foto), bypassing identity resolution."""
+        from .ai.base import ClassifiedNote, PlayerMatch
+
+        classified = ClassifiedNote(
+            raw_quote=text,
+            is_team_note=False,
+            player_ref=PlayerMatch(team=prospect.team),
+            confidence=1.0,
+        )
+        return await self._store(session, classified, prospect=prospect, source=source)
 
     # ── Corrections ─────────────────────────────────────────────────────
     async def undo_last(self, session: Session) -> Observation | None:
@@ -171,101 +373,32 @@ class ScoutingService:
             await self.storage.delete_observation(last.id)
         return last
 
-    async def reassign_last_player(self, session: Session, player: Player) -> bool:
-        last = await self.storage.last_observation(session.id)
-        if last is None:
-            return False
-        await self.storage.update_observation(
-            last.id, player_id=player.id, side=player.side
-        )
-        return True
-
-    async def flip_last_sentiment(self, session: Session) -> str | None:
-        last = await self.storage.last_observation(session.id)
-        if last is None or last.sentiment is None:
-            return None
-        from .taxonomy import SENTIMENT_NEGATIVE, SENTIMENT_POSITIVE
-
-        new = (
-            SENTIMENT_NEGATIVE
-            if last.sentiment == SENTIMENT_POSITIVE
-            else SENTIMENT_POSITIVE
-        )
-        await self.storage.update_observation(last.id, sentiment=new)
-        return new
-
-    async def add_missing_player(
-        self, session: Session, side: str, number: int | None, name: str, position: str | None
-    ) -> Player:
-        """Roster gap: add a sub / missed player on the fly."""
-        return await self.storage.add_player(
-            Player(
-                session_id=session.id,
-                side=side,
-                number=number,
-                name=name,
-                position=position,
-            )
-        )
-
-    async def set_target(self, player: Player, is_target: bool) -> None:
-        await self.storage.set_target(player.id, is_target)
-
     # ── internals ───────────────────────────────────────────────────────
     async def _store(
-        self, session: Session, classified: ClassifiedNote, player: Player | None
+        self,
+        session: Session,
+        classified: ClassifiedNote,
+        prospect: Prospect | None,
+        source: str,
+        rating: float | None = None,
     ) -> Observation:
+        ref = classified.player_ref
+        team = self._team_name(session, ref)
         obs = Observation(
             session_id=session.id,
-            player_id=player.id if player else None,
-            side=player.side if player else None,
-            sentiment=classified.sentiment,
-            skill_category=classified.skill_category,
+            prospect_id=prospect.id if prospect else None,
+            is_team_note=classified.is_team_note,
+            team=team,
+            player_name=(ref.name if ref else None),
+            player_number=(ref.number if ref else None),
+            player_position=(ref.position if ref else None),
+            source=source,
+            rating=rating,
             raw_quote=classified.raw_quote,
         )
-        return await self.storage.add_observation(obs)
-
-    def _match_to_roster(
-        self, session: Session, ref: PlayerMatch | None
-    ) -> Player | None:
-        """Return the single roster player the reference resolves to, else None."""
-        candidates = self._candidates(session, ref)
-        return candidates[0] if len(candidates) == 1 else None
-
-    def _candidates(self, session: Session, ref: PlayerMatch | None) -> list[Player]:
-        if ref is None:
-            return []
-        players = list(session.players)
-
-        # Name is the strongest signal. Try exact (accent-insensitive) first so a
-        # clean unique name stays confident, then fall back to fuzzy matching
-        # (surname-only / typo / accents) before resorting to number/position.
-        if ref.name:
-            exact = [
-                p for p in players if normalize_name(p.name) == normalize_name(ref.name)
-            ]
-            if exact:
-                return exact
-            fuzzy = [p for p in players if name_matches(ref.name, p.name)]
-            if fuzzy:
-                return fuzzy
-
-        pool = players
-        if ref.side:
-            sided = [p for p in pool if p.side == ref.side]
-            if sided:
-                pool = sided
-
-        if ref.number is not None:
-            by_num = [p for p in pool if p.number == ref.number]
-            if ref.position:
-                refined = [p for p in by_num if p.position == ref.position]
-                if refined:
-                    return refined
-            if by_num:
-                return by_num
-
-        if ref.position:
-            return [p for p in pool if p.position == ref.position]
-
-        return []
+        stored = await self.storage.add_observation(obs)
+        # An inline rating also updates the prospect's latest rating.
+        if rating is not None and prospect is not None:
+            await self.storage.update_prospect(prospect.id, latest_rating=rating)
+            prospect.latest_rating = rating  # keep the in-memory object consistent
+        return stored
