@@ -26,7 +26,7 @@ SOURCE_TEXT = "text"
 SOURCE_VOICE = "voice"
 SOURCE_PHOTO = "photo"
 
-# Player decision statuses (end-of-month workflow).
+# Player decision statuses (manual /decision workflow + report buttons).
 DECISION_PENDING = "Pendiente"
 DECISION_WATCH = "Seguir observando"
 DECISION_ADVANCE = "Avanzar"
@@ -37,6 +37,28 @@ DECISION_STATUSES = (
     DECISION_ADVANCE,
     DECISION_DISCARD,
 )
+
+# Auto-decision derived from the manual 1–5 rating (client-specified mapping).
+# This is the decision shown in reports whenever a player has a rating; the scout
+# no longer needs a separate command in the main flow.
+RATING_DECISIONS = {
+    1: "A descartar",
+    2: "A seguir",
+    3: "Interesante",
+    4: "Muy interesante",
+    5: "A firmar",
+}
+
+
+def decision_for_rating(rating: float | None) -> str | None:
+    """Map a 1–5 rating (rounded to the nearest whole) onto its decision label.
+
+    Returns None when there's no rating. Out-of-range values are clamped so a
+    stray 0 or 6 still yields a sensible edge decision."""
+    if rating is None:
+        return None
+    bucket = min(5, max(1, round(rating)))
+    return RATING_DECISIONS[bucket]
 
 
 class Session(Model):
@@ -54,6 +76,11 @@ class Session(Model):
     category = fields.TextField(null=True)
     location = fields.TextField(null=True)
     match_date = fields.DatetimeField(null=True)
+    # Match clock. Each half's wall-clock start is stamped when the scout sends
+    # /primer_tiempo or /segundo_tiempo; the current minute is derived from these
+    # (see ScoutingService.current_minute). Null until the scout starts the half.
+    first_half_started_at = fields.DatetimeField(null=True)
+    second_half_started_at = fields.DatetimeField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
     last_activity_at = fields.DatetimeField(auto_now_add=True)
     ended_at = fields.DatetimeField(null=True)
@@ -97,7 +124,7 @@ class Prospect(Model):
     position = fields.CharField(max_length=80, null=True)
     age = fields.IntField(null=True)
     height_cm = fields.IntField(null=True)
-    latest_rating = fields.FloatField(null=True)  # manual, 1–10 (decimals allowed)
+    latest_rating = fields.FloatField(null=True)  # manual, 1–5 (decimals allowed)
     decision_status = fields.CharField(max_length=24, null=True)  # DECISION_STATUSES
     is_temporary = fields.BooleanField(default=False)
     photo_file_id = fields.TextField(null=True)  # Telegram file_id (MVP storage)
@@ -133,7 +160,9 @@ class Observation(Model):
     player_position = fields.CharField(max_length=80, null=True)
     source = fields.CharField(max_length=8, null=True)  # text | voice | photo
     rating = fields.FloatField(null=True)  # manual, inline ("valoración 7")
+    minute = fields.IntField(null=True)  # match minute (from the clock), null if not running
     is_team_note = fields.BooleanField(default=False)
+    is_substitution = fields.BooleanField(default=False)  # "entra … sale …"
     raw_quote = fields.TextField()
     created_at = fields.DatetimeField(auto_now_add=True)
 

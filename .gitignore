@@ -7,3 +7,6 @@ __pycache__/
 reports/
 .venv/
 venv/
+.DS_Store
+# Generated share artifact — regenerate from the guide HTML via headless Chrome.
+docs/*.pdf

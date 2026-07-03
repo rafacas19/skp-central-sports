@@ -2,18 +2,33 @@
 
 import pytest
 
+from scouting_bot.models import decision_for_rating
 from scouting_bot.service import extract_inline_rating
+
+
+# ── rating → decision mapping (pure) ──────────────────────────────────────────
+def test_decision_for_rating():
+    assert decision_for_rating(1) == "A descartar"
+    assert decision_for_rating(2) == "A seguir"
+    assert decision_for_rating(3) == "Interesante"
+    assert decision_for_rating(4) == "Muy interesante"
+    assert decision_for_rating(5) == "A firmar"
+    assert decision_for_rating(None) is None
+    # Decimals round to the nearest whole bucket; out-of-range clamps.
+    assert decision_for_rating(4.4) == "Muy interesante"
+    assert decision_for_rating(0) == "A descartar"
+    assert decision_for_rating(6) == "A firmar"
 
 
 # ── inline rating parsing (pure) ──────────────────────────────────────────────
 def test_extract_inline_rating():
-    assert extract_inline_rating("Castro valoración 7") == ("Castro", 7.0)
-    assert extract_inline_rating("Castro América valoración 7.5")[1] == 7.5
-    assert extract_inline_rating("rating 8")[1] == 8.0
+    assert extract_inline_rating("Castro valoración 4") == ("Castro", 4.0)
+    assert extract_inline_rating("Castro América valoración 4.5")[1] == 4.5
+    assert extract_inline_rating("rating 3")[1] == 3.0
     # No rating → text untouched.
     assert extract_inline_rating("buen primer toque") == ("buen primer toque", None)
-    # Out of range (1–10) → ignored.
-    assert extract_inline_rating("valoración 11")[1] is None
+    # Out of range (1–5) → ignored.
+    assert extract_inline_rating("valoración 8")[1] is None
     assert extract_inline_rating("valoración 0")[1] is None
 
 
@@ -31,17 +46,20 @@ async def test_add_team_note(service):
 async def test_rate_by_name(service):
     sess, _ = await service.start_session(1, "A", "B", None)
     await service.capture_notes(sess, "Castro de A buen pase")
-    result = await service.rate_by_name(sess.agent_chat_id, "Castro", 7.5)
+    result = await service.rate_by_name(sess.agent_chat_id, "Castro", 4)
     assert not isinstance(result, list)
-    assert result.latest_rating == 7.5
+    assert result.latest_rating == 4
+    # Rating auto-derives the decision (1–5 mapping).
+    assert result.decision_status == "Muy interesante"
 
 
 @pytest.mark.asyncio
 async def test_inline_rating_sets_observation_and_prospect(service):
     sess, _ = await service.start_session(1, "A", "B", None)
-    r = (await service.capture_notes(sess, "Castro de A buen pase valoración 8"))[0]
-    assert r.observation.rating == 8.0
-    assert r.prospect.latest_rating == 8.0
+    r = (await service.capture_notes(sess, "Castro de A buen pase valoración 4"))[0]
+    assert r.observation.rating == 4.0
+    assert r.prospect.latest_rating == 4.0
+    assert r.prospect.decision_status == "Muy interesante"  # auto-decision
     # The rating phrase is stripped from the stored quote.
     assert "valoración" not in r.observation.raw_quote.lower()
 

@@ -32,12 +32,17 @@ class ClassifiedNote:
 
     Identity-only: the AI extracts WHO the note is about (and whether it's a team
     note), never an evaluation. Sentiment/skill are no longer produced — ratings
-    are manual."""
+    are manual.
+
+    For a substitution ("entra X y sale Y"), `is_substitution` is True and
+    `player_ref` identifies the ENTERING player (so later observations attach to
+    them); the exiting player is left in `raw_quote` only."""
 
     raw_quote: str
     is_team_note: bool
     player_ref: PlayerMatch | None  # who the note is about
     confidence: float  # 0..1 — below threshold ⇒ bot asks the agent
+    is_substitution: bool = False
 
 
 class AIProvider(Protocol):

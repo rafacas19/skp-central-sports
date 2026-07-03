@@ -34,8 +34,8 @@ _POSITION_KEYWORDS: dict[str, str] = {
 }
 
 _TEAM_NOTE_HINTS = {
-    "el equipo", "equipo juega", "formación", "formacion", "presionan",
-    "presionando", "defienden", "línea de", "linea de", "bloque",
+    "el equipo", "equipo juega", "formación", "formacion", "presiona",
+    "presionan", "presionando", "defienden", "línea de", "linea de", "bloque",
     "juegan", "the team", "they play", "formation", "pressing",
 }
 
@@ -48,6 +48,11 @@ class MockAIProvider(AIProvider):
     async def classify_notes(
         self, text: str, home_team: str, away_team: str
     ) -> list[ClassifiedNote]:
+        # Substitutions are a distinct shape ("entra X y sale Y") — handle the
+        # whole message as one entering-player note, never split by player.
+        sub = _classify_substitution(text, home_team, away_team)
+        if sub is not None:
+            return [sub]
         fragments = _split_multi_player(text, home_team, away_team)
         notes = [_classify_one(frag, home_team, away_team) for frag in fragments]
         return [n for n in notes if n is not None]
@@ -108,6 +113,54 @@ def _classify_one(
         return None  # nothing to attach an observation to
     return ClassifiedNote(
         raw_quote=stripped, is_team_note=False, player_ref=ref, confidence=confidence
+    )
+
+
+# A substitution: "entra <X> [y] sale <Y>". The ENTERING segment is what matters.
+_SUB_RE = re.compile(
+    r"\bentra\b(?P<in>.*?)(?:\s+(?:y\s+)?sale\b(?P<out>.*))?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _classify_substitution(
+    text: str, home_team: str, away_team: str
+) -> ClassifiedNote | None:
+    """Detect a substitution and identify the ENTERING player. Returns a note with
+    is_substitution=True, or None if the text isn't a substitution."""
+    lowered = text.lower()
+    if "entra" not in lowered:
+        return None
+    m = _SUB_RE.search(text)
+    if not m:
+        return None
+    in_seg = (m.group("in") or "").strip(" ,.:")
+    if not in_seg:
+        return None
+
+    # The team may be stated anywhere in the message ("entra Ferrin de América").
+    team = _match_team(lowered, home_team, away_team)
+    side = _side_for(team, home_team, away_team)
+    name = _extract_name(in_seg, home_team, away_team)
+    number = _extract_number(in_seg.lower())
+
+    ref = PlayerMatch(number=number, name=name, position=None, side=side, team=team)
+    # Confidence mirrors the normal path: a name, or a number+team, is confident;
+    # an entering number with no team is ambiguous → the bot will ask which team.
+    if name:
+        confidence = 0.95
+    elif number is not None and team:
+        confidence = 0.9
+    elif number is not None:
+        confidence = 0.4
+    else:
+        return None  # can't identify who entered → treat as a plain note
+    return ClassifiedNote(
+        raw_quote=text.strip(),
+        is_team_note=False,
+        player_ref=ref,
+        confidence=confidence,
+        is_substitution=True,
     )
 
 

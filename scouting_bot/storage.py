@@ -141,6 +141,16 @@ class Storage:
             normalized_name=norm_name,
             normalized_team=norm_team,
         ).first()
+        # No team stated and no exact teamless record → reuse the unique same-name
+        # prospect if there's exactly one (e.g. "Ferrin" after "entra Ferrin de
+        # Millonarios"). Don't guess a team when several same-name players exist.
+        if prospect is None and not team:
+            same_name = await Prospect.filter(
+                agent_chat_id=chat_id, normalized_name=norm_name, is_temporary=False
+            )
+            named = [p for p in same_name if p.name]
+            if len(named) == 1:
+                prospect = named[0]
         if prospect is not None:
             # Backfill team/position if we now know them.
             changed = False
@@ -231,6 +241,16 @@ class Storage:
             id__in=ids, is_temporary=False
         ).exclude(name="").order_by("id")
         return list(prospects)
+
+    async def all_prospects(self, chat_id: int) -> list[Prospect]:
+        """Every named (non-temporary) prospect for a chat, oldest first — the
+        rows of the cumulative historical report."""
+        rows = (
+            await Prospect.filter(agent_chat_id=chat_id, is_temporary=False)
+            .exclude(name="")
+            .order_by("id")
+        )
+        return list(rows)
 
     async def observations_for_prospect(
         self, chat_id: int, prospect_id: int
