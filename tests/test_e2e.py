@@ -4,12 +4,19 @@
 Observation-first: no lineup gate. After /nuevo, observations are captured
 immediately; the deterministic MockAIProvider extracts identity from the text."""
 
-import csv
 import io
 
 import pytest
 
 from .e2e_harness import message_update
+
+
+def _read_workbook(content: bytes) -> dict[str, list[list]]:
+    """Read an .xlsx byte blob into {sheet_name: [rows]} for assertions."""
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(content))
+    return {ws.title: [list(r) for r in ws.iter_rows(values_only=True)] for ws in wb}
 
 
 def _team_button(outbox, team_hint: str) -> str | None:
@@ -37,15 +44,20 @@ async def test_e2e_happy_path_observation_then_finish_csv(harness):
     await harness.send_text("Castro, volante, América, se asocia bien por dentro")
     assert any(t.startswith("✅") for t in harness.outbox.texts())
 
-    # 3. Finish → CSV with the observation.
+    # 3. Finish → xlsx workbook with the observation, grouped on the Visitante sheet.
     harness.outbox.clear()
     await harness.send_text("/finalizar")
     docs = harness.outbox.documents_sent()
     assert len(docs) == 1
     filename, content = docs[0]
-    assert filename == "informe_Millonarios_vs_América.csv"
-    rows = list(csv.reader(io.StringIO(content.decode("utf-8-sig"))))
-    body = "\n".join(",".join(r) for r in rows)
+    assert filename == "informe_Millonarios_vs_América.xlsx"
+    sheets = _read_workbook(content)
+    assert set(sheets) == {"Local", "Visitante", "Notas equipo"}
+    body = "\n".join(
+        " ".join(str(c) for c in row if c is not None)
+        for rows in sheets.values()
+        for row in rows
+    )
     assert "Castro" in body and "se asocia bien por dentro" in body
 
 
@@ -114,8 +126,9 @@ async def test_e2e_scout_name_and_team_note_and_rating(harness):
     assert harness.outbox.texts_containing("Nota de equipo")
 
     await harness.send_text("Castro de América buen pase")
-    await harness.send_text("/valorar Castro 7.5")
-    assert harness.outbox.texts_containing("valoración 7.5")
+    await harness.send_text("/valorar Castro 4")
+    # Rating 4 → auto-decision "Muy interesante".
+    assert harness.outbox.texts_containing("Muy interesante")
 
 
 @pytest.mark.asyncio
@@ -254,7 +267,7 @@ async def test_e2e_finalize_asks_dedup_then_merges_and_sends_csv(harness):
     await harness.tap_button(pick)
     assert harness.outbox.texts_containing("unidos")
     docs = harness.outbox.documents_sent()
-    assert len(docs) == 1 and docs[0][0] == "informe_Millonarios_vs_América.csv"
+    assert len(docs) == 1 and docs[0][0] == "informe_Millonarios_vs_América.xlsx"
 
 
 @pytest.mark.asyncio
@@ -282,6 +295,72 @@ async def test_e2e_finalize_no_dups_finalizes_immediately(harness):
     # No near-duplicate pair → no dedup question, CSV sent straight away.
     assert not harness.outbox.texts_containing("son el mismo jugador")
     assert len(harness.outbox.documents_sent()) == 1
+
+
+# ── match timer ────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_e2e_first_and_second_half_commands(harness):
+    await harness.send_text("/nuevo Millonarios vs América")
+    harness.outbox.clear()
+
+    await harness.send_text("/primer_tiempo")
+    assert harness.outbox.texts_containing("Primer tiempo")
+
+    harness.outbox.clear()
+    await harness.send_text("/segundo_tiempo")
+    assert harness.outbox.texts_containing("Segundo tiempo")
+
+
+@pytest.mark.asyncio
+async def test_e2e_second_half_before_first_is_rejected(harness):
+    await harness.send_text("/nuevo Millonarios vs América")
+    harness.outbox.clear()
+    await harness.send_text("/segundo_tiempo")
+    assert harness.outbox.texts_containing("Aún no has iniciado el primer tiempo")
+
+
+# ── cumulative historical export ─────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_e2e_historico_exports_all_players(harness):
+    await harness.send_text("/nuevo América vs Nacional")
+    await harness.send_text("Castro de América buen pase valoración 4")
+    await harness.send_text("/fin")
+
+    harness.outbox.clear()
+    await harness.send_text("/historico")
+    docs = harness.outbox.documents_sent()
+    assert len(docs) == 1
+    filename, content = docs[0]
+    assert filename == "historico_scouting.xlsx"
+    sheets = _read_workbook(content)
+    assert "Histórico" in sheets
+    body = " ".join(str(c) for row in sheets["Histórico"] for c in row if c is not None)
+    assert "Castro" in body
+
+
+# ── substitutions ────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_e2e_substitution_named_entering_player(harness):
+    await harness.send_text("/nuevo Millonarios vs América")
+    harness.outbox.clear()
+    await harness.send_text("Entra Ferrin de Millonarios y sale Ocampo")
+    assert harness.outbox.texts_containing("Cambio registrado")
+    assert harness.outbox.texts_containing("Ferrin")
+    # No team-ambiguity ask — the entering player's team was stated.
+    assert not harness.outbox.texts_containing("¿Te refieres al")
+
+
+@pytest.mark.asyncio
+async def test_e2e_substitution_ambiguous_number_asks_team(harness):
+    await harness.send_text("/nuevo Millonarios vs América")
+    harness.outbox.clear()
+    await harness.send_text("Entra el número 7 y sale Ocampo")
+    # Entering number with no team → the bot asks which team.
+    assert harness.outbox.texts_containing("¿Te refieres al")
+    pick = _team_button(harness.outbox, "América")
+    assert pick is not None
+    await harness.tap_button(pick)
+    assert harness.outbox.texts_containing("Registrada para América")
 
 
 # ── webhook authentication (HTTP layer) ───────────────────────────────────────

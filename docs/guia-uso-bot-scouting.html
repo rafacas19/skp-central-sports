@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Guía de uso — Bot de Scouting</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color: #1a1a1a; line-height: 1.5; font-size: 11.5pt; margin: 0;
+  }
+  header {
+    border-bottom: 3px solid #1f7a3d; padding-bottom: 10px; margin-bottom: 18px;
+  }
+  h1 { font-size: 22pt; margin: 0 0 4px; color: #14532d; }
+  header .sub { color: #555; font-size: 10.5pt; margin: 0; }
+  h2 {
+    font-size: 13.5pt; color: #14532d; margin: 22px 0 6px;
+    border-bottom: 1px solid #d8e6dd; padding-bottom: 3px;
+  }
+  p { margin: 6px 0; }
+  code {
+    background: #f0f3f1; border: 1px solid #e0e6e2; border-radius: 4px;
+    padding: 1px 5px; font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10pt; color: #0b3d20;
+  }
+  pre {
+    background: #f7f9f8; border: 1px solid #e0e6e2; border-left: 3px solid #1f7a3d;
+    border-radius: 4px; padding: 9px 12px; margin: 8px 0; overflow: hidden;
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 9.8pt;
+    color: #0b3d20; white-space: pre-wrap; word-break: break-word;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  .note {
+    background: #fffbe9; border: 1px solid #f0e2a8; border-left: 3px solid #d9a800;
+    border-radius: 4px; padding: 8px 12px; margin: 8px 0; font-size: 10.5pt;
+  }
+  .new { color: #b35c00; font-weight: 600; }
+  ul { margin: 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 10pt; }
+  th, td { border: 1px solid #d8e6dd; padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: #eaf4ee; color: #14532d; }
+  td code { white-space: nowrap; }
+  .step-num { color: #1f7a3d; font-weight: 700; }
+  footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #ddd; color: #888; font-size: 9pt; }
+  .avoid-break { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚽ Guía de uso — Bot de Scouting</h1>
+  <p class="sub">Herramienta de scouting en vivo por Telegram · Skip Central Sports</p>
+</header>
+
+<p>Escribe tus observaciones en <strong>lenguaje natural</strong> (texto o voz) durante el
+partido. El bot <strong>agrupa</strong> las notas por jugador, <strong>calcula</strong> la
+valoración y la decisión, y <strong>exporta</strong> el informe en Excel. Tú observas; el
+bot organiza. No necesitas manejar los datos a mano.</p>
+
+<h2>1. Empezar un partido</h2>
+<pre><code>/nuevo Millonarios vs América</code></pre>
+<p>Metadatos opcionales (separados por <code>|</code>, en cualquier orden):</p>
+<pre><code>/nuevo Millonarios vs América | competición=Liga | fecha=2026-06-20 | sede=El Campín</code></pre>
+<ul>
+  <li>Si no indicas la <strong>fecha</strong>, se asume la de hoy.</li>
+  <li>Solo puede haber <strong>un partido activo a la vez</strong>. Si intentas abrir otro, el bot te pregunta si quieres cerrar el actual primero.</li>
+</ul>
+
+<h2>2. <span class="new">🆕 Cronómetro del partido</span></h2>
+<p>El bot marca cada observación con el <strong>minuto de partido</strong>. Tú controlas el reloj con dos comandos:</p>
+<pre><code>/primer_tiempo     → arranca el reloj en el minuto 0
+/segundo_tiempo    → reanuda el reloj en el minuto 45</code></pre>
+<ul>
+  <li>Envía <code>/primer_tiempo</code> al pitido inicial y <code>/segundo_tiempo</code> cuando arranque la segunda mitad.</li>
+  <li>El bot avisa al llegar al minuto 45 y al 90 (el reloj sigue contando el tiempo añadido).</li>
+</ul>
+<div class="note avoid-break">
+  <strong>Si el reloj se desfasa</strong> (saque lento, tiempo añadido), escribe el minuto real
+  dentro de una observación y el bot se re-sincroniza:
+  <pre><code>Jordan Ferrin gol min 37</code></pre>
+  Esa observación queda como <em>“Gol min 37”</em> y el cronómetro se ajusta al 37.
+</div>
+
+<h2>3. Registrar observaciones (texto o voz)</h2>
+<p>Escribe (o envía una <strong>nota de voz</strong>) describiendo al jugador. El bot extrae
+nombre, número, equipo, posición, edad y estatura del texto. Ejemplos válidos:</p>
+<pre><code>Jordan Ferrin buen juego aéreo valoración 4
+Edwin Rodríguez, delantero ágil en el área
+Edwin Rodríguez, 17 años altura 1,87
+Número 7 rápido en el 1vs1</code></pre>
+<p>Todas las notas del <strong>mismo jugador se agrupan</strong> en una sola fila del informe,
+con sus minutos. No hace falta un formato rígido.</p>
+<div class="note avoid-break">
+  <strong>Cuando falta el equipo (número solo):</strong> si das un número sin decir el
+  equipo, el bot <strong>no adivina</strong> — pregunta:
+  <pre><code>🤔 ¿El número 7 es de Millonarios o de América?
+   [Millonarios] [América]</code></pre>
+</div>
+
+<h2>4. <span class="new">🆕 Sustituciones (cambios)</span></h2>
+<p>Escribe el cambio en lenguaje natural. Lo importante es <strong>quién entra</strong>: el bot
+lo registra como jugador para que puedas seguir observándolo.</p>
+<pre><code>Entra Jordan Ferrin y sale el número 7
+Entra Jordan Ferrin sale Ocampo
+Entra número 7 y sale número 9</code></pre>
+<p>Queda como <em>“Jordan Ferrin: Entra min 62”</em>. Si el que entra es un número y no está
+claro el equipo, el bot pregunta.</p>
+
+<h2>5. <span class="new">Valoración 1–5 y decisión automática</span></h2>
+<p>Tú pones la nota (del <strong>1 al 5</strong>), con comando o dentro de una observación:</p>
+<pre><code>/valorar Jordan Ferrin 4
+Jordan Ferrin buena definición valoración 4</code></pre>
+<p>La <strong>valoración final</strong> es la última que pusiste. La <strong>decisión se calcula
+sola</strong> a partir de la nota:</p>
+<table>
+  <thead><tr><th>Valoración</th><th>Decisión</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>A descartar</td></tr>
+    <tr><td>2</td><td>A seguir</td></tr>
+    <tr><td>3</td><td>Interesante</td></tr>
+    <tr><td>4</td><td>Muy interesante</td></tr>
+    <tr><td>5</td><td>A firmar</td></tr>
+  </tbody>
+</table>
+
+<h2>6. Notas de equipo (tácticas)</h2>
+<pre><code>/equipo Millonarios juega 4-2-3-1, defensas fuertes, extremos rápidos</code></pre>
+<p>Se guardan aparte y aparecen en la hoja <strong>Notas equipo</strong> del informe.</p>
+
+<h2>7. Jugador desconocido por foto</h2>
+<pre><code>/foto</code></pre>
+<p>El bot pide la foto → la envías → luego mandas la observación. Crea un perfil temporal que
+podrás completar más adelante.</p>
+
+<h2>8. <span class="new">Finalizar el partido → informe en Excel</span></h2>
+<pre><code>/fin</code></pre>
+<p>Cierra el partido y te envía un <strong>archivo Excel (.xlsx) editable</strong> con tres hojas:</p>
+<ul>
+  <li><strong>Local</strong> y <strong>Visitante</strong>: una fila por jugador, con las
+  observaciones agrupadas (con minutos), valoración final y decisión.</li>
+  <li><strong>Notas equipo</strong>: las notas tácticas.</li>
+</ul>
+<p>Columnas: <em>Match · Fecha · Local · Visitante · Club jugador · Nombre jugador · Número ·
+Edad · Estatura · Observaciones agrupadas · Valoración final · Decisión</em>.</p>
+<div class="note avoid-break">
+  Antes de generar el informe, si el bot detecta dos nombres muy parecidos del mismo equipo
+  (p. ej. <em>Castro</em> y <em>Castro B.</em>), pregunta si son el mismo jugador para no
+  duplicar filas.
+</div>
+
+<h2>9. <span class="new">🆕 Histórico acumulado (base de scouting)</span></h2>
+<pre><code>/historico</code></pre>
+<p>Genera un Excel con <strong>todos los jugadores observados en todos los partidos</strong>:
+club, partidos, fechas, observaciones anteriores y actuales, valoración, decisión y un
+resumen global. Funciona como exportación de la base de datos de scouting.</p>
+
+<h2>10. Informe de un jugador</h2>
+<pre><code>/reporte_jugador Jordan Ferrin</code></pre>
+<p>Muestra el historial del jugador en todos los partidos más un <strong>resumen generado por
+IA</strong> con patrones, fortalezas y una recomendación.</p>
+
+<h2>11. Identificarte como scout</h2>
+<pre><code>/yo Rafael</code></pre>
+<p>Tu nombre aparecerá en los informes. Se recuerda entre partidos.</p>
+
+<h2>📋 Resumen de comandos</h2>
+<table>
+  <thead><tr><th>Comando</th><th>Para qué</th></tr></thead>
+  <tbody>
+    <tr><td><code>/nuevo Local vs Visitante</code></td><td>Empezar un partido (admite <code>| campo=valor</code>)</td></tr>
+    <tr><td><code>/primer_tiempo</code> · <code>/segundo_tiempo</code></td><td>Arrancar / reanudar el cronómetro</td></tr>
+    <tr><td><em>(texto o voz)</em></td><td>Registrar observaciones y cambios</td></tr>
+    <tr><td><code>/valorar &lt;nombre&gt; &lt;1-5&gt;</code></td><td>Valoración manual (decisión automática)</td></tr>
+    <tr><td><code>/equipo &lt;texto&gt;</code></td><td>Nota táctica del equipo</td></tr>
+    <tr><td><code>/foto</code></td><td>Jugador desconocido por foto</td></tr>
+    <tr><td><code>/reporte_jugador &lt;nombre&gt;</code></td><td>Informe de un jugador + resumen IA</td></tr>
+    <tr><td><code>/historico</code></td><td>Exportar toda la base de scouting</td></tr>
+    <tr><td><code>/yo &lt;nombre&gt;</code></td><td>Tu nombre de scout</td></tr>
+    <tr><td><code>/fin</code></td><td>Cerrar partido y generar el Excel</td></tr>
+    <tr><td><code>/undo</code></td><td>Deshacer la última observación</td></tr>
+  </tbody>
+</table>
+<p style="font-size:9.5pt; color:#666;">Cada comando tiene alias en inglés
+(<code>/newmatch</code>, <code>/firsthalf</code>, <code>/secondhalf</code>, <code>/rate</code>,
+<code>/team</code>, <code>/photo</code>, <code>/playerreport</code>, <code>/history</code>).</p>
+
+<footer>
+  Skip Central Sports — Bot de Scouting · Guía de uso · español
+</footer>
+
+</body>
+</html>

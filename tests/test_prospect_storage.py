@@ -102,10 +102,10 @@ async def test_update_prospect_fields(service):
     chat = 105
     p = await service.storage.get_or_create_prospect(chat, "Castro", "América")
     await service.storage.update_prospect(
-        p.id, age=22, height_cm=180, latest_rating=7.5, decision_status="Avanzar"
+        p.id, age=22, height_cm=180, latest_rating=4.5, decision_status="Avanzar"
     )
     refreshed = await service.storage.get_prospect(p.id)
     assert refreshed.age == 22
     assert refreshed.height_cm == 180
-    assert refreshed.latest_rating == 7.5
+    assert refreshed.latest_rating == 4.5
     assert refreshed.decision_status == "Avanzar"

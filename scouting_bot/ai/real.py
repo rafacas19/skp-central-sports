@@ -22,10 +22,18 @@ Mensaje: "{text}"
 
 Un mensaje puede comentar a varios jugadores (p. ej. "el 10 muy bien pero el 4
 lento"). Emite UNA nota por cada jugador o nota de equipo distinta.
+
+SUSTITUCIONES: si el mensaje describe un cambio ("entra X y sale Y", "entra el
+7 sale Ocampo"), emite UNA sola nota con is_substitution=true y player_ref del
+jugador que ENTRA (nunca del que sale). Lo más importante es identificar a quién
+entra, porque el scout hará observaciones posteriores sobre él. Si el que entra
+es un número sin equipo, deja team/side en null (el bot preguntará).
+
 Devuelve JSON ESTRICTO: {{"notes": [ <note>, ... ]}} donde cada <note> tiene:
 - raw_quote: la frase del mensaje que corresponde a esta nota (el mensaje
   completo si es una sola observación).
 - is_team_note: true si habla del equipo/táctica, no de un jugador concreto.
+- is_substitution: true si es un cambio (entra/sale). Por defecto false.
 - player_ref: {{"number":int|null,"name":str|null,"position":str|null,"team":str|null,"side":"home"|"away"|null}}
   - name: SOLO los tokens de nombre/apellido que el scout escribió textualmente.
     NUNCA inventes, expandas ni añadas iniciales, segundos apellidos, acentos ni
@@ -119,6 +127,7 @@ def _note_from(raw: dict, full_text: str) -> ClassifiedNote:
         is_team_note=is_team,
         player_ref=ref,
         confidence=float(raw.get("confidence", 0.5)),
+        is_substitution=bool(raw.get("is_substitution")),
     )
 
 

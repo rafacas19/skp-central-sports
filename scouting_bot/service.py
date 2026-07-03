@@ -8,8 +8,10 @@ unit-testable without a running bot.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from .ai.base import AIProvider, ClassifiedNote, PlayerMatch
 from .models import Observation, Prospect, Session
@@ -17,17 +19,46 @@ from .storage import Storage
 
 logger = logging.getLogger(__name__)
 
-# Inline manual rating: "... valoración 7", "valoracion: 7.5", "rating 8".
+
+def _now() -> datetime:
+    """Timezone-aware UTC now (Tortoise DatetimeField stores tz-aware values)."""
+    return datetime.now(timezone.utc)
+
+
+# Inline manual rating: "... valoración 4", "valoracion: 5", "rating 3".
 _RATING_RE = re.compile(
-    r"\b(?:valoraci[oó]n|rating|nota)\s*:?\s*(\d{1,2}(?:[.,]\d)?)\b", re.IGNORECASE
+    r"\b(?:valoraci[oó]n|rating|nota)\s*:?\s*(\d(?:[.,]\d)?)\b", re.IGNORECASE
 )
-RATING_MIN, RATING_MAX = 1.0, 10.0
+RATING_MIN, RATING_MAX = 1.0, 5.0
+
+# Match-clock constants. The half ends nominally at these minutes, but the clock
+# is allowed to keep counting into added time — the notices at 45/90 are advisory.
+HALF_MINUTES = 45
+FULL_MINUTES = 90
+
+# Inline match minute: "min 37", "minuto 37", "37'".
+_MINUTE_RE = re.compile(r"\b(?:min(?:uto)?\.?\s*(\d{1,3})|(\d{1,3})\s*['’])", re.IGNORECASE)
+
+
+def extract_inline_minute(text: str) -> tuple[str, int | None]:
+    """Pull an explicit match minute out of an observation, if present.
+
+    "Ferrin gol min 37" → ("Ferrin gol", 37); "37' remate" → ("remate", 37).
+    Returns (cleaned_text, minute|None). Out-of-range (0–130) is ignored. Pure."""
+    m = _MINUTE_RE.search(text)
+    if not m:
+        return text, None
+    minute = int(m.group(1) or m.group(2))
+    if not (0 <= minute <= 130):
+        return text, None
+    cleaned = (text[: m.start()] + text[m.end() :]).strip(" ,.;")
+    return cleaned or text, minute
 
 
 def extract_inline_rating(text: str) -> tuple[str, float | None]:
     """Pull a trailing manual rating out of an observation, if present.
 
-    "Castro valoración 7" → ("Castro", 7.0). Out-of-range (1–10) is ignored.
+    "Castro valoración 4" → ("Castro", 4.0). Out-of-range (1–5) is ignored.
     Returns (cleaned_text, rating|None). Pure — unit-testable on its own."""
     m = _RATING_RE.search(text)
     if not m:
@@ -52,6 +83,7 @@ class CaptureResult:
     prospect: Prospect | None
     needs_team_choice: bool = False
     team_candidates: list[str] | None = None
+    minute: int | None = None
 
 
 class ScoutingService:
@@ -86,6 +118,52 @@ class ScoutingService:
         await self.storage.end_session(session.id)
         return await self.storage.get_session(session.id)
 
+    # ── Match clock ─────────────────────────────────────────────────────
+    async def start_first_half(self, session: Session, now: datetime | None = None) -> None:
+        """Start (or restart) the first-half clock at minute 0."""
+        now = now or _now()
+        await self.storage.update_session_meta(
+            session.id, first_half_started_at=now, second_half_started_at=None
+        )
+        session.first_half_started_at = now
+        session.second_half_started_at = None
+
+    async def start_second_half(self, session: Session, now: datetime | None = None) -> None:
+        """Start the second half; the clock resumes counting from minute 45."""
+        now = now or _now()
+        # Anchor so that "now" reads as minute 45.
+        await self.storage.update_session_meta(session.id, second_half_started_at=now)
+        session.second_half_started_at = now
+
+    def current_minute(self, session: Session, now: datetime | None = None) -> int | None:
+        """The current match minute derived from the clock, or None if not running.
+
+        First half: floor(elapsed since first_half_started_at). Second half:
+        45 + floor(elapsed since second_half_started_at). The clock keeps counting
+        past 45/90 (added time) — the caller sends the advisory notices."""
+        now = now or _now()
+        if session.second_half_started_at is not None:
+            elapsed = (now - session.second_half_started_at).total_seconds()
+            return HALF_MINUTES + max(0, math.floor(elapsed / 60))
+        if session.first_half_started_at is not None:
+            elapsed = (now - session.first_half_started_at).total_seconds()
+            return max(0, math.floor(elapsed / 60))
+        return None  # clock not started
+
+    async def resync_clock(self, session: Session, minute: int, now: datetime | None = None) -> None:
+        """Re-anchor the running clock so it now reads `minute` (from an inline
+        'min N' correction). Adjusts the active half's start time; a no-op if the
+        clock isn't running."""
+        now = now or _now()
+        if session.second_half_started_at is not None:
+            anchor = now - timedelta(minutes=max(0, minute - HALF_MINUTES))
+            await self.storage.update_session_meta(session.id, second_half_started_at=anchor)
+            session.second_half_started_at = anchor
+        elif session.first_half_started_at is not None:
+            anchor = now - timedelta(minutes=max(0, minute))
+            await self.storage.update_session_meta(session.id, first_half_started_at=anchor)
+            session.first_half_started_at = anchor
+
     # ── Capture ─────────────────────────────────────────────────────────
     async def transcribe(self, audio_bytes: bytes, mime_type: str) -> str:
         return await self.ai.transcribe_voice(audio_bytes, mime_type)
@@ -98,8 +176,19 @@ class ScoutingService:
         with no team is flagged for a team choice. 'Ask only when unsure.'
 
         An inline manual rating ("Castro valoración 7") is stripped before
-        classification and applied to the (single) note + its prospect."""
+        classification and applied to the (single) note + its prospect.
+
+        An inline match minute ("Ferrin gol min 37") is stripped too; it stamps
+        this observation AND re-syncs the running clock (so subsequent auto-timed
+        notes continue from there). Absent an inline minute, the current clock
+        minute is used (None if the clock isn't running)."""
         text, rating = extract_inline_rating(text)
+        text, inline_minute = extract_inline_minute(text)
+        if inline_minute is not None:
+            await self.resync_clock(session, inline_minute)
+            minute = inline_minute
+        else:
+            minute = self.current_minute(session)
         classified_list = await self.ai.classify_notes(
             text, session.home_team, session.away_team
         )
@@ -108,7 +197,7 @@ class ScoutingService:
         results: list[CaptureResult] = []
         for classified in classified_list:
             results.append(
-                await self._process_one(session, classified, source, note_rating)
+                await self._process_one(session, classified, source, note_rating, minute)
             )
         return results
 
@@ -118,13 +207,16 @@ class ScoutingService:
         classified: ClassifiedNote,
         source: str,
         rating: float | None = None,
+        minute: int | None = None,
     ) -> CaptureResult:
         """Resolve a classified note to a prospect and store it, or ask for a team."""
         ref = classified.player_ref
 
         # Team-level note: store with no prospect.
         if classified.is_team_note:
-            obs = await self._store(session, classified, prospect=None, source=source)
+            obs = await self._store(
+                session, classified, prospect=None, source=source, minute=minute
+            )
             return CaptureResult(obs, classified, None)
 
         team = self._team_name(session, ref)
@@ -135,7 +227,8 @@ class ScoutingService:
                 session.agent_chat_id, ref.name, team, position=ref.position
             )
             obs = await self._store(
-                session, classified, prospect=prospect, source=source, rating=rating
+                session, classified, prospect=prospect, source=source,
+                rating=rating, minute=minute,
             )
             return CaptureResult(obs, classified, prospect)
 
@@ -145,7 +238,8 @@ class ScoutingService:
                 session.agent_chat_id, session.id, team, ref.number
             )
             obs = await self._store(
-                session, classified, prospect=prospect, source=source, rating=rating
+                session, classified, prospect=prospect, source=source,
+                rating=rating, minute=minute,
             )
             return CaptureResult(obs, classified, prospect)
 
@@ -157,6 +251,7 @@ class ScoutingService:
                 None,
                 needs_team_choice=True,
                 team_candidates=[session.home_team, session.away_team],
+                minute=minute,
             )
 
         # Position/other without a name or number, but a team is known → temp by team.
@@ -165,18 +260,28 @@ class ScoutingService:
                 session.agent_chat_id, session.id, team, ref.number if ref else None
             )
             obs = await self._store(
-                session, classified, prospect=prospect, source=source, rating=rating
+                session, classified, prospect=prospect, source=source,
+                rating=rating, minute=minute,
             )
             return CaptureResult(obs, classified, prospect)
 
         # Nothing to attach to → store as an unattached note rather than block.
-        obs = await self._store(session, classified, prospect=None, source=source)
+        obs = await self._store(
+            session, classified, prospect=None, source=source, minute=minute
+        )
         return CaptureResult(obs, classified, None)
 
     async def resolve_team_choice(
-        self, session: Session, classified: ClassifiedNote, team: str, source: str = "text"
+        self,
+        session: Session,
+        classified: ClassifiedNote,
+        team: str,
+        source: str = "text",
+        minute: int | None = None,
     ) -> Observation:
-        """Scout picked the team for a previously number-only note; store it."""
+        """Scout picked the team for a previously number-only note; store it. The
+        minute is the one captured when the note arrived (carried on the pending
+        entry), not now — the scout may answer the button minutes later."""
         number = classified.player_ref.number if classified.player_ref else None
         prospect = await self.storage.get_or_create_temp_prospect(
             session.agent_chat_id, session.id, team, number
@@ -185,7 +290,9 @@ class ScoutingService:
         if classified.player_ref is None:
             classified.player_ref = PlayerMatch()
         classified.player_ref.team = team
-        return await self._store(session, classified, prospect=prospect, source=source)
+        return await self._store(
+            session, classified, prospect=prospect, source=source, minute=minute
+        )
 
     def _team_name(self, session: Session, ref: PlayerMatch | None) -> str | None:
         """The actual team name for a note: an explicit team, else mapped from side."""
@@ -222,8 +329,15 @@ class ScoutingService:
         return await self.storage.add_observation(obs)
 
     async def set_rating(self, prospect: Prospect, score: float) -> None:
-        await self.storage.update_prospect(prospect.id, latest_rating=score)
+        """Set the manual rating AND the auto-derived decision (1–5 → decision)."""
+        from .models import decision_for_rating
+
+        decision = decision_for_rating(score)
+        await self.storage.update_prospect(
+            prospect.id, latest_rating=score, decision_status=decision
+        )
         prospect.latest_rating = score  # keep the in-memory object consistent
+        prospect.decision_status = decision
 
     async def set_decision_by_id(self, prospect_id: int, status: str) -> None:
         await self.storage.update_prospect(prospect_id, decision_status=status)
@@ -358,6 +472,23 @@ class ScoutingService:
         summary = await self.ai.summarize_player(payload)
         return prospect, observations, summary
 
+    async def historical_report(
+        self, chat_id: int
+    ) -> list[tuple[Prospect, list[Observation], str]]:
+        """Assemble the cumulative report across ALL matches: for every named
+        prospect, their full observation history and an AI summary. The caller
+        (report.build_historical_workbook) turns this into a workbook."""
+        prospects = await self.storage.all_prospects(chat_id)
+        out: list[tuple[Prospect, list[Observation], str]] = []
+        for prospect in prospects:
+            observations = await self.storage.observations_for_prospect(
+                chat_id, prospect.id
+            )
+            payload = [self._obs_to_dict(o) for o in observations]
+            summary = await self.ai.summarize_player(payload) if payload else ""
+            out.append((prospect, observations, summary))
+        return out
+
     def _obs_to_dict(self, o: Observation) -> dict:
         session = getattr(o, "session", None)
         team = o.team or ""
@@ -393,16 +524,25 @@ class ScoutingService:
         self, session: Session, text: str, prospect: Prospect, source: str = "text"
     ) -> Observation:
         """Store an observation directly against a known prospect (e.g. the temp
-        profile created by /foto), bypassing identity resolution."""
+        profile created by /foto), bypassing identity resolution. An inline
+        'min N' still stamps the minute and re-syncs the clock."""
         from .ai.base import ClassifiedNote, PlayerMatch
 
+        text, inline_minute = extract_inline_minute(text)
+        if inline_minute is not None:
+            await self.resync_clock(session, inline_minute)
+            minute = inline_minute
+        else:
+            minute = self.current_minute(session)
         classified = ClassifiedNote(
             raw_quote=text,
             is_team_note=False,
             player_ref=PlayerMatch(team=prospect.team),
             confidence=1.0,
         )
-        return await self._store(session, classified, prospect=prospect, source=source)
+        return await self._store(
+            session, classified, prospect=prospect, source=source, minute=minute
+        )
 
     # ── Corrections ─────────────────────────────────────────────────────
     async def undo_last(self, session: Session) -> Observation | None:
@@ -419,6 +559,7 @@ class ScoutingService:
         prospect: Prospect | None,
         source: str,
         rating: float | None = None,
+        minute: int | None = None,
     ) -> Observation:
         ref = classified.player_ref
         team = self._team_name(session, ref)
@@ -426,17 +567,25 @@ class ScoutingService:
             session_id=session.id,
             prospect_id=prospect.id if prospect else None,
             is_team_note=classified.is_team_note,
+            is_substitution=classified.is_substitution,
             team=team,
             player_name=(ref.name if ref else None),
             player_number=(ref.number if ref else None),
             player_position=(ref.position if ref else None),
             source=source,
             rating=rating,
+            minute=minute,
             raw_quote=classified.raw_quote,
         )
         stored = await self.storage.add_observation(obs)
-        # An inline rating also updates the prospect's latest rating.
+        # An inline rating updates the prospect's latest rating AND auto-decision.
         if rating is not None and prospect is not None:
-            await self.storage.update_prospect(prospect.id, latest_rating=rating)
+            from .models import decision_for_rating
+
+            decision = decision_for_rating(rating)
+            await self.storage.update_prospect(
+                prospect.id, latest_rating=rating, decision_status=decision
+            )
             prospect.latest_rating = rating  # keep the in-memory object consistent
+            prospect.decision_status = decision
         return stored

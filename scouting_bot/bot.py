@@ -37,7 +37,12 @@ from telegram.ext import (
 from .ai import get_provider
 from .config import settings
 from .models import HOME, Session
-from .report import build_csv, build_player_report, build_summary
+from .report import (
+    build_historical_workbook,
+    build_player_report,
+    build_summary,
+    build_workbook,
+)
 from .service import ScoutingService
 from .storage import Storage
 
@@ -76,10 +81,25 @@ def _decision_keyboard(prospect_id: int) -> InlineKeyboardMarkup:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "⚽ *Bot de scouting*\n\n"
-        "Inicia un partido con:\n"
-        "`/nuevo Equipo Local vs Equipo Visitante`\n\n"
-        "Luego envía una foto de la alineación, confírmala y empieza a mandar notas "
-        "de voz o texto. Finaliza con /fin.",
+        "Escribe (o graba) tus observaciones en lenguaje natural; yo agrupo, "
+        "calculo y exporto por ti.\n\n"
+        "*Flujo de un partido*\n"
+        "1. `/nuevo Local vs Visitante` — crea el partido.\n"
+        "2. `/primer_tiempo` al arranque; `/segundo_tiempo` tras el descanso "
+        "(cada observación queda marcada con el minuto).\n"
+        "3. Envía observaciones por texto o voz, p. ej.\n"
+        "   `Jordan Ferrin buen juego aéreo valoración 4`\n"
+        "   `Edwin Rodríguez, 17 años altura 1,87`\n"
+        "   `Entra Ferrin y sale el número 7`\n"
+        "4. `/fin` — genera el informe del partido en Excel.\n\n"
+        "*Otros comandos*\n"
+        "• `/valorar <nombre> 1-5` — valoración manual (la decisión se calcula sola).\n"
+        "• `/equipo <nota táctica>` — nota del equipo.\n"
+        "• `/foto` — jugador desconocido por foto.\n"
+        "• `/reporte_jugador <nombre>` — historial acumulado + resumen.\n"
+        "• `/historico` — exporta toda la base de scouting.\n"
+        "• `/yo <tu nombre>` — te identifica en los informes.\n"
+        "• `/undo` — deshace la última observación.",
         parse_mode="Markdown",
     )
 
@@ -126,11 +146,97 @@ async def cmd_newmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(
         f"🆕 Partido iniciado: *{home} vs {away}*"
         + (f"\n_{label}_" if label else "")
-        + "\n\nYa puedes enviar observaciones por texto o voz, p. ej. "
+        + "\n\nCuando arranque el partido, envía /primer_tiempo para poner el "
+        "cronómetro en marcha (así cada observación queda marcada con el minuto).\n"
+        "Ya puedes enviar observaciones por texto o voz, p. ej. "
         "`América, #7, extremo, muy rápido en el 1vs1`. "
-        "Finaliza con /finalizar.",
+        "Finaliza con /fin.",
         parse_mode="Markdown",
     )
+
+
+async def cmd_first_half(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/primer_tiempo — start the first-half clock at minute 0."""
+    session = await _require_session(update, context)
+    if session is None:
+        return
+    await _svc(context).start_first_half(session)
+    _schedule_half_notice(context, update.effective_chat.id, session.id, half=1)
+    await update.message.reply_text(
+        "⏱️ *Primer tiempo* iniciado. Cronómetro en marcha (minuto 0).\n"
+        "Cada observación quedará marcada con el minuto. Si el reloj se desfasa, "
+        "escribe el minuto en la observación (p. ej. `... min 37`).",
+        parse_mode="Markdown",
+    )
+
+
+async def cmd_second_half(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/segundo_tiempo — start the second half; the clock resumes at minute 45."""
+    session = await _require_session(update, context)
+    if session is None:
+        return
+    if session.first_half_started_at is None:
+        await update.message.reply_text(
+            "Aún no has iniciado el primer tiempo. Usa /primer_tiempo al arranque."
+        )
+        return
+    await _svc(context).start_second_half(session)
+    _schedule_half_notice(context, update.effective_chat.id, session.id, half=2)
+    await update.message.reply_text(
+        "⏱️ *Segundo tiempo* iniciado. Cronómetro reanudado en el minuto 45.",
+        parse_mode="Markdown",
+    )
+
+
+def _schedule_half_notice(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, session_id: int, half: int
+) -> None:
+    """Schedule the advisory notice at the nominal end of the half (45' / 90').
+
+    Uses the job queue when available; in the test harness (no job queue) it's a
+    no-op — the notice is purely informational and the clock keeps counting."""
+    from .service import HALF_MINUTES
+
+    jq = context.job_queue
+    if jq is None:
+        return
+    name = f"half_notice:{session_id}:{half}"
+    for job in jq.get_jobs_by_name(name):
+        job.schedule_removal()
+    jq.run_once(
+        _half_notice_job,
+        when=HALF_MINUTES * 60,
+        chat_id=chat_id,
+        name=name,
+        data={"session_id": session_id, "half": half},
+    )
+
+
+async def _half_notice_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Fire the 45'/90' advisory notice, unless the session already moved on."""
+    svc = _svc(context)
+    job = context.job
+    session_id = job.data["session_id"]
+    half = job.data["half"]
+    session = await svc.storage.get_active_session(job.chat_id)
+    if session is None or session.id != session_id:
+        return
+    if half == 1:
+        # Only nag if the scout hasn't already started the second half.
+        if session.second_half_started_at is not None:
+            return
+        await context.bot.send_message(
+            job.chat_id,
+            "⏸️ *Primer tiempo* — minuto 45.\n"
+            "Cuando empiece el segundo tiempo, usa /segundo_tiempo.",
+            parse_mode="Markdown",
+        )
+    else:
+        await context.bot.send_message(
+            job.chat_id,
+            "⏸️ *Segundo tiempo* — minuto 90.\nUsa /fin para generar el informe.",
+            parse_mode="Markdown",
+        )
 
 
 async def cmd_endmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -176,11 +282,11 @@ async def _do_finalize(
     await context.bot.send_message(
         chat_id, build_summary(ended), parse_mode="Markdown"
     )
-    csv_bytes = build_csv(ended)
-    buf = io.BytesIO(csv_bytes)
+    xlsx_bytes = build_workbook(ended)
+    buf = io.BytesIO(xlsx_bytes)
     fname = f"informe_{ended.home_team}_vs_{ended.away_team}".replace(" ", "_")
     await context.bot.send_document(
-        chat_id, document=InputFile(buf, filename=f"{fname}.csv")
+        chat_id, document=InputFile(buf, filename=f"{fname}.xlsx")
     )
 
 
@@ -229,14 +335,14 @@ async def cmd_team_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def cmd_rate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/valorar <nombre> <nota> — manual rating (1–10, decimales permitidos)."""
+    """/valorar <nombre> <nota> — manual rating (1–5). Sets the decision too."""
     session = await _require_session(update, context)
     if session is None:
         return
     args = context.args or []
     if len(args) < 2:
         await update.message.reply_text(
-            "Uso: `/valorar <nombre> <nota>` — p. ej. `/valorar Castro 7.5`.",
+            "Uso: `/valorar <nombre> <nota>` — p. ej. `/valorar Castro 4`.",
             parse_mode="Markdown",
         )
         return
@@ -245,10 +351,10 @@ async def cmd_rate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         score = float(score_raw)
     except ValueError:
-        await update.message.reply_text("La nota debe ser un número (1–10).")
+        await update.message.reply_text("La nota debe ser un número (1–5).")
         return
-    if not (1.0 <= score <= 10.0):
-        await update.message.reply_text("La nota debe estar entre 1 y 10.")
+    if not (1.0 <= score <= 5.0):
+        await update.message.reply_text("La nota debe estar entre 1 y 5.")
         return
     result = await _svc(context).rate_by_name(session.agent_chat_id, name, score)
     if isinstance(result, list):
@@ -261,7 +367,8 @@ async def cmd_rate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         return
     await update.message.reply_text(
-        f"⭐ *{result.name}*: valoración {score:g}.", parse_mode="Markdown"
+        f"⭐ *{result.name}*: valoración {score:g} → *{result.decision_status}*.",
+        parse_mode="Markdown",
     )
 
 
@@ -306,6 +413,26 @@ async def cmd_player_report(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         build_player_report(prospect, observations, summary),
         parse_mode="Markdown",
         reply_markup=_decision_keyboard(prospect.id),
+    )
+
+
+async def cmd_historico(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/historico — cumulative scouting DB export (all players, all matches)."""
+    chat_id = update.effective_chat.id
+    svc = _svc(context)
+    rows = await svc.historical_report(chat_id)
+    if not rows:
+        await update.message.reply_text(
+            "Aún no hay jugadores registrados para generar el histórico."
+        )
+        return
+    await update.message.reply_text(
+        f"📚 Generando histórico acumulado ({len(rows)} jugador(es))…"
+    )
+    xlsx_bytes = build_historical_workbook(rows)
+    buf = io.BytesIO(xlsx_bytes)
+    await context.bot.send_document(
+        chat_id, document=InputFile(buf, filename="historico_scouting.xlsx")
     )
 
 
@@ -523,7 +650,16 @@ async def _handle_capture(
     stored = [r for r in results if r.observation is not None]
     if stored:
         n = len(stored)
-        if n == 1 and stored[0].classified.is_team_note:
+        if n == 1 and stored[0].classified.is_substitution:
+            r = stored[0]
+            who = _entering_label(r)
+            minute = f" (min {r.observation.minute})" if r.observation.minute is not None else ""
+            await update.message.reply_text(
+                f"🔄 Cambio registrado{minute}. Entra: *{who}*. "
+                "Las próximas observaciones se le asignarán.",
+                parse_mode="Markdown",
+            )
+        elif n == 1 and stored[0].classified.is_team_note:
             await update.message.reply_text(
                 "📝 ✅", reply_to_message_id=update.message.message_id
             )
@@ -543,6 +679,7 @@ async def _handle_capture(
                     "classified": r.classified,
                     "teams": r.team_candidates,
                     "source": source,
+                    "minute": r.minute,
                 }
             )
     if was_empty and pending:
@@ -713,7 +850,8 @@ async def _resolve_team_choice(query, context, session: Session, picked: str) ->
     else:
         team = entry["teams"][int(picked)]
         await _svc(context).resolve_team_choice(
-            session, entry["classified"], team, source=entry.get("source", "text")
+            session, entry["classified"], team,
+            source=entry.get("source", "text"), minute=entry.get("minute"),
         )
         await query.edit_message_text(f"✅ Registrada para {team}.")
 
@@ -758,6 +896,19 @@ async def _require_session(
             "Inicia una con `/nuevo Local vs Visitante`.",
         )
     return session
+
+
+def _entering_label(result) -> str:
+    """A short label for the entering player of a substitution CaptureResult."""
+    ref = result.classified.player_ref
+    if ref and ref.name:
+        return ref.name
+    if ref and ref.number is not None:
+        team = f" ({ref.team})" if ref.team else ""
+        return f"#{ref.number}{team}"
+    if result.prospect and result.prospect.name:
+        return result.prospect.name
+    return "jugador"
 
 
 def _parse_side(raw: str) -> str:
@@ -897,12 +1048,15 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("help", cmd_start))
     # Primary command names are Spanish; English names kept as hidden aliases.
     app.add_handler(CommandHandler(["nuevo", "newmatch"], cmd_newmatch))
+    app.add_handler(CommandHandler(["primer_tiempo", "firsthalf"], cmd_first_half))
+    app.add_handler(CommandHandler(["segundo_tiempo", "secondhalf"], cmd_second_half))
     app.add_handler(CommandHandler(["finalizar", "fin", "endmatch"], cmd_endmatch))
     app.add_handler(CommandHandler("yo", cmd_set_scout))
     app.add_handler(CommandHandler(["equipo", "team"], cmd_team_note))
     app.add_handler(CommandHandler(["valorar", "rate"], cmd_rate))
     app.add_handler(CommandHandler(["foto", "photo"], cmd_photo))
     app.add_handler(CommandHandler(["reporte_jugador", "playerreport"], cmd_player_report))
+    app.add_handler(CommandHandler(["historico", "history"], cmd_historico))
     app.add_handler(CommandHandler(["decision", "decidir"], cmd_decision))
     app.add_handler(CommandHandler(["editar", "edit"], cmd_edit))
     app.add_handler(CommandHandler(["unir", "merge"], cmd_merge))
