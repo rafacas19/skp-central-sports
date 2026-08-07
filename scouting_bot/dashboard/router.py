@@ -28,11 +28,11 @@ templates = Jinja2Templates(directory=_BASE / "templates")
 # The scout works in Colombia; timestamps are stored UTC.
 _TZ = queries.TZ
 
-# (label, href) — extended by later phases (Decisiones).
 NAV = [
     ("Resumen", "/dashboard"),
     ("Partidos", "/dashboard/partidos"),
     ("Jugadores", "/dashboard/jugadores"),
+    ("Decisiones", "/dashboard/decisiones"),
 ]
 
 
@@ -217,6 +217,14 @@ async def players_page(
     }
     filters["any"] = any(filters.values())
     return _render(request, "players.html", {**data, "filters": filters})
+
+
+@router.get(
+    "/decisiones", response_class=HTMLResponse, dependencies=[Depends(auth.require_dashboard)]
+)
+async def decisions_page(request: Request):
+    groups = await queries.decision_board()
+    return _render(request, "decisions.html", {"groups": groups})
 
 
 @router.get(

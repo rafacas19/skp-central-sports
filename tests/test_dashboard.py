@@ -394,3 +394,34 @@ async def test_player_not_found(client, dashboard_auth):
     resp = await client.get("/dashboard/jugadores/9999")
     assert resp.status_code == 404
     assert "no existe" in resp.text
+
+
+# ── Decision board ───────────────────────────────────────────────────────
+async def test_decisions_requires_auth(client, dashboard_auth):
+    resp = await client.get("/dashboard/decisiones")
+    assert resp.status_code == 303
+
+
+async def test_decision_board_groups(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    resp = await client.get("/dashboard/decisiones")
+    assert resp.status_code == 200
+    text = resp.text
+
+    # Groups appear best-first: A firmar (Ferrin, 5) → A seguir (Ocampo, 2)
+    # → Sin valorar (the unnamed dorsal-7 profile).
+    assert text.index("A firmar") < text.index("A seguir") < text.index("Sin valorar")
+
+    # Each player sits in their group's card, linking to the profile.
+    ferrin_pos = text.index("Jordan Ferrin")
+    assert text.index("A firmar") < ferrin_pos < text.index("A seguir")
+    assert f"/dashboard/jugadores/{seeded['ferrin'].id}" in text
+    assert "Sin identificar (dorsal 7)" in text
+
+
+async def test_decision_board_empty(client, dashboard_auth):
+    await _login(client)
+    resp = await client.get("/dashboard/decisiones")
+    assert resp.status_code == 200
+    assert "Todavía no hay jugadores registrados" in resp.text

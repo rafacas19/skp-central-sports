@@ -210,6 +210,27 @@ main a:hover { text-decoration: underline; }
 .badge.sub { background: #fff4e0; color: #b35c00; border: 1px solid #f0d9a8; }
 
 .match-group h3 { color: var(--green-800); font-size: 1rem; margin: 18px 0 6px; }
+
+/* ── Decision board ── */
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.player-card {
+  display: block;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--green-600);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text) !important;
+  font-weight: normal !important;
+}
+.player-card:hover { text-decoration: none !important; border-color: var(--green-600); box-shadow: 0 1px 4px rgba(20, 83, 45, 0.15); }
+.player-name { font-weight: 600; color: var(--green-800); }
+.player-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 0.85rem; }
+.player-foot .rating { font-weight: 700; color: var(--green-800); }
 h1 .chip { vertical-align: middle; font-size: 0.85rem; }
 
 .team-notes { list-style: none; margin: 0; padding: 0; }

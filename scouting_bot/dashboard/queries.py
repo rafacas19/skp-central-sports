@@ -63,6 +63,44 @@ def _first_number(p: Prospect) -> int | None:
     return None
 
 
+def _ordered_labels(present: set[str]) -> list[str]:
+    """Decision labels in display order: canonical best-first, then any legacy
+    manual statuses alphabetically, unrated last."""
+    ordered = [d for d in DECISION_ORDER if d in present]
+    ordered += sorted(present - set(DECISION_ORDER) - {NO_DECISION})
+    if NO_DECISION in present:
+        ordered.append(NO_DECISION)
+    return ordered
+
+
+def _player_row(p: Prospect) -> dict:
+    """The list/card representation of a prospect (observations prefetched)."""
+    return {
+        "id": p.id,
+        "name": display_name(p),
+        "is_temporary": p.is_temporary or not p.name,
+        "team": p.team,
+        "position": p.position,
+        "rating": p.latest_rating,
+        "decision": prospect_decision(p),
+        "matches": len({o.session_id for o in p.observations}),
+        "observations": len(p.observations),
+    }
+
+
+def _rows_sorted(rows: list[dict]) -> list[dict]:
+    """Best-rated first, then named players A-Z, temps last."""
+    return sorted(
+        rows,
+        key=lambda r: (
+            r["rating"] is None,
+            -(r["rating"] or 0),
+            r["is_temporary"],
+            r["name"],
+        ),
+    )
+
+
 async def overview() -> dict:
     """Everything the overview page shows, in one shot."""
     sessions = await Session.all().prefetch_related("observations").order_by("-created_at")
@@ -80,11 +118,7 @@ async def overview() -> dict:
     for p in prospects:
         label = prospect_decision(p) or NO_DECISION
         counts[label] = counts.get(label, 0) + 1
-    ordered = [d for d in DECISION_ORDER if d in counts]
-    ordered += sorted(d for d in counts if d not in DECISION_ORDER and d != NO_DECISION)
-    if NO_DECISION in counts:
-        ordered.append(NO_DECISION)
-    decisions = [{"label": d, "count": counts[d]} for d in ordered]
+    decisions = [{"label": d, "count": counts[d]} for d in _ordered_labels(set(counts))]
 
     recent = [
         {
@@ -185,14 +219,10 @@ async def list_players(
     prospects = await Prospect.all().prefetch_related("observations")
     teams = sorted({p.team for p in prospects if p.team})
     present = {prospect_decision(p) or NO_DECISION for p in prospects}
-    decision_options = [d for d in DECISION_ORDER if d in present]
-    decision_options += sorted(present - set(DECISION_ORDER) - {NO_DECISION})
-    if NO_DECISION in present:
-        decision_options.append(NO_DECISION)
+    decision_options = _ordered_labels(present)
 
     rows = []
     for p in prospects:
-        p_decision = prospect_decision(p)
         if q:
             qn = normalize_name(q)
             haystack = f"{p.normalized_name} {p.normalized_team or ''}"
@@ -200,34 +230,30 @@ async def list_players(
                 continue
         if team and p.team != team:
             continue
-        if decision and (p_decision or NO_DECISION) != decision:
+        if decision and (prospect_decision(p) or NO_DECISION) != decision:
             continue
         if rating_min is not None and (p.latest_rating or 0) < rating_min:
             continue
-        rows.append(
-            {
-                "id": p.id,
-                "name": display_name(p),
-                "is_temporary": p.is_temporary or not p.name,
-                "team": p.team,
-                "position": p.position,
-                "rating": p.latest_rating,
-                "decision": p_decision,
-                "matches": len({o.session_id for o in p.observations}),
-                "observations": len(p.observations),
-            }
-        )
+        rows.append(_player_row(p))
 
-    # Rated first (best rating up top), then named players A-Z, temps last.
-    rows.sort(
-        key=lambda r: (
-            r["rating"] is None,
-            -(r["rating"] or 0),
-            r["is_temporary"],
-            r["name"],
-        )
-    )
-    return {"players": rows, "teams": teams, "decision_options": decision_options}
+    return {
+        "players": _rows_sorted(rows),
+        "teams": teams,
+        "decision_options": decision_options,
+    }
+
+
+async def decision_board() -> list[dict]:
+    """Prospects grouped by decision, best group first — the shortlist view."""
+    prospects = await Prospect.all().prefetch_related("observations")
+    groups: dict[str, list[dict]] = {}
+    for p in prospects:
+        label = prospect_decision(p) or NO_DECISION
+        groups.setdefault(label, []).append(_player_row(p))
+    return [
+        {"label": label, "players": _rows_sorted(groups[label])}
+        for label in _ordered_labels(set(groups))
+    ]
 
 
 async def player_detail(prospect_id: int) -> dict | None:

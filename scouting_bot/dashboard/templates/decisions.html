@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Decisiones — Panel de Scouting{% endblock %}
+{% block content %}
+<h1>Decisiones</h1>
+<p class="muted">Jugadores agrupados por decisión — la decisión sale de la última valoración (1–5), salvo que se haya fijado a mano.</p>
+
+{% if groups %}
+{% for g in groups %}
+<section class="decision-group">
+  <h2>{{ g.label }} <span class="chip small">{{ g.players | length }}</span></h2>
+  <div class="board">
+    {% for p in g.players %}
+    <a class="player-card" href="/dashboard/jugadores/{{ p.id }}">
+      <div class="player-name">{{ p.name }}</div>
+      <div class="muted">
+        {{ p.team or "Equipo desconocido" }}{% if p.position %} · {{ p.position }}{% endif %}
+      </div>
+      <div class="player-foot">
+        {% if p.rating is not none %}<span class="rating">{{ p.rating | valoracion }} / 5</span>{% endif %}
+        <span class="muted">{{ p.matches }} partido{{ "s" if p.matches != 1 }} · {{ p.observations }} obs.</span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% else %}
+<p class="muted">Todavía no hay jugadores registrados.</p>
+{% endif %}
+{% endblock %}
