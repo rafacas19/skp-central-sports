@@ -31,7 +31,9 @@
       <span class="min">{{ o.minute | minuto }}</span>
       <div class="entry">
         <div class="who">
-          {% if o.player_name %}{{ o.player_name }}{% elif o.player_number is not none %}Dorsal {{ o.player_number }}{% else %}—{% endif %}
+          {% if o.prospect_id %}<a href="/dashboard/jugadores/{{ o.prospect_id }}">{% endif %}
+          {%- if o.player_name %}{{ o.player_name }}{% elif o.player_number is not none %}Dorsal {{ o.player_number }}{% else %}—{% endif %}
+          {%- if o.prospect_id %}</a>{% endif %}
           {% if o.player_name and o.player_number is not none %}<span class="muted">· {{ o.player_number }}</span>{% endif %}
           {% if o.team %}<span class="muted">· {{ o.team }}</span>{% endif %}
           {% if o.is_substitution %}<span class="badge sub">Cambio</span>{% endif %}

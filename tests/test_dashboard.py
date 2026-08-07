@@ -62,14 +62,16 @@ async def _seed() -> dict:
 
     ferrin = await Prospect.create(
         agent_chat_id=1, name="Jordan Ferrin", normalized_name="jordan ferrin",
-        team="Millonarios", latest_rating=5,
+        team="Millonarios", normalized_team="millonarios", latest_rating=5,
+        position="Delantero",
     )
     ocampo = await Prospect.create(
         agent_chat_id=1, name="Ocampo", normalized_name="ocampo",
-        team="América", latest_rating=2,
+        team="América", normalized_team="america", latest_rating=2,
     )
     temp = await Prospect.create(
-        agent_chat_id=1, name="", normalized_name="", team="Valle", is_temporary=True,
+        agent_chat_id=1, name="", normalized_name="", team="Valle",
+        normalized_team="valle", is_temporary=True,
     )
 
     await Observation.create(
@@ -92,7 +94,11 @@ async def _seed() -> dict:
         session=live, prospect=temp, player_number=7,
         raw_quote="Rápido en el 1vs1", minute=5,
     )
-    return {"old": old, "live": live}
+    await Observation.create(
+        session=live, prospect=ferrin, player_name="Jordan Ferrin",
+        raw_quote="Buen cambio de ritmo", minute=70, rating=4,
+    )
+    return {"old": old, "live": live, "ferrin": ferrin, "ocampo": ocampo, "temp": temp}
 
 
 # ── Disabled state ───────────────────────────────────────────────────────
@@ -288,5 +294,103 @@ async def test_match_detail_dorsal_only_player(client, dashboard_auth):
 async def test_match_detail_not_found(client, dashboard_auth):
     await _login(client)
     resp = await client.get("/dashboard/partidos/9999")
+    assert resp.status_code == 404
+    assert "no existe" in resp.text
+
+
+async def test_match_detail_links_players(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    resp = await client.get(f"/dashboard/partidos/{seeded['old'].id}")
+    assert f"/dashboard/jugadores/{seeded['ferrin'].id}" in resp.text
+
+
+# ── Players list ─────────────────────────────────────────────────────────
+async def test_players_requires_auth(client, dashboard_auth):
+    resp = await client.get("/dashboard/jugadores")
+    assert resp.status_code == 303
+
+
+async def test_players_list(client, dashboard_auth):
+    await _seed()
+    await _login(client)
+    resp = await client.get("/dashboard/jugadores")
+    assert resp.status_code == 200
+    text = resp.text
+
+    assert "Jordan Ferrin" in text
+    assert "Ocampo" in text
+    assert "Sin identificar (dorsal 7)" in text  # temp prospect is never dropped
+    assert "Delantero" in text
+    assert "5 / 5" in text
+    assert "A firmar" in text and "A seguir" in text
+
+    # Sorted best-rated first, temps last.
+    assert text.index("Jordan Ferrin") < text.index("Ocampo") < text.index("Sin identificar")
+
+
+async def test_players_filters(client, dashboard_auth):
+    await _seed()
+    await _login(client)
+
+    # Accent-insensitive search over name and team.
+    resp = await client.get("/dashboard/jugadores", params={"q": "ferrin"})
+    assert "Jordan Ferrin" in resp.text and "Ocampo" not in resp.text
+    resp = await client.get("/dashboard/jugadores", params={"q": "america"})
+    assert "Ocampo" in resp.text and "Jordan Ferrin" not in resp.text
+
+    resp = await client.get("/dashboard/jugadores", params={"equipo": "Millonarios"})
+    assert "Jordan Ferrin" in resp.text and "Ocampo" not in resp.text
+
+    resp = await client.get("/dashboard/jugadores", params={"decision": "A firmar"})
+    assert "Jordan Ferrin" in resp.text and "Ocampo" not in resp.text
+    resp = await client.get("/dashboard/jugadores", params={"decision": "Sin valorar"})
+    assert "Sin identificar" in resp.text and "Jordan Ferrin" not in resp.text
+
+    resp = await client.get("/dashboard/jugadores", params={"valoracion_min": "3"})
+    assert "Jordan Ferrin" in resp.text and "Ocampo" not in resp.text
+
+    resp = await client.get("/dashboard/jugadores", params={"q": "nadie"})
+    assert "No hay jugadores que coincidan" in resp.text
+    resp = await client.get("/dashboard/jugadores", params={"valoracion_min": "muchas"})
+    assert resp.status_code == 200  # malformed input is ignored, not a 500
+
+
+# ── Player profile ───────────────────────────────────────────────────────
+async def test_player_profile(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    resp = await client.get(f"/dashboard/jugadores/{seeded['ferrin'].id}")
+    assert resp.status_code == 200
+    text = resp.text
+
+    # Bio header.
+    assert "Jordan Ferrin" in text
+    assert "Millonarios" in text and "Delantero" in text
+    assert "A firmar" in text
+
+    # Observations grouped under both matches, with their quotes.
+    assert "Millonarios vs América" in text and "Bogotá vs Valle" in text
+    assert "Gran juego aéreo" in text and "Buen cambio de ritmo" in text
+
+    # Rating history: one row per rated observation, linked to its match.
+    assert "Historial de valoraciones" in text
+    assert "5 / 5" in text and "4 / 5" in text
+    assert f"/dashboard/partidos/{seeded['old'].id}" in text
+
+
+async def test_player_profile_temporary(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    resp = await client.get(f"/dashboard/jugadores/{seeded['temp'].id}")
+    assert resp.status_code == 200
+    assert "Sin identificar (dorsal 7)" in resp.text
+    assert "Perfil sin identificar" in resp.text
+    assert "Rápido en el 1vs1" in resp.text
+
+
+async def test_player_not_found(client, dashboard_auth):
+    await _login(client)
+    resp = await client.get("/dashboard/jugadores/9999")
     assert resp.status_code == 404
     assert "no existe" in resp.text

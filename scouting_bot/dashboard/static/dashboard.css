@@ -209,6 +209,9 @@ main a:hover { text-decoration: underline; }
 .timeline .quote { color: #333; }
 .badge.sub { background: #fff4e0; color: #b35c00; border: 1px solid #f0d9a8; }
 
+.match-group h3 { color: var(--green-800); font-size: 1rem; margin: 18px 0 6px; }
+h1 .chip { vertical-align: middle; font-size: 0.85rem; }
+
 .team-notes { list-style: none; margin: 0; padding: 0; }
 .team-notes li {
   background: var(--green-100);

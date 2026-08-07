@@ -28,10 +28,11 @@ templates = Jinja2Templates(directory=_BASE / "templates")
 # The scout works in Colombia; timestamps are stored UTC.
 _TZ = queries.TZ
 
-# (label, href) — extended by later phases (Jugadores, Decisiones).
+# (label, href) — extended by later phases (Decisiones).
 NAV = [
     ("Resumen", "/dashboard"),
     ("Partidos", "/dashboard/partidos"),
+    ("Jugadores", "/dashboard/jugadores"),
 ]
 
 
@@ -186,3 +187,49 @@ async def match_page(request: Request, session_id: int):
             status_code=status.HTTP_404_NOT_FOUND,
         )
     return _render(request, "match_detail.html", data)
+
+
+@router.get(
+    "/jugadores", response_class=HTMLResponse, dependencies=[Depends(auth.require_dashboard)]
+)
+async def players_page(
+    request: Request,
+    q: str | None = None,
+    equipo: str | None = None,
+    decision: str | None = None,
+    valoracion_min: str | None = None,
+):
+    try:
+        rating_min = float(valoracion_min) if valoracion_min else None
+    except ValueError:
+        rating_min = None
+    data = await queries.list_players(
+        q=q or None,
+        team=equipo or None,
+        decision=decision or None,
+        rating_min=rating_min,
+    )
+    filters = {
+        "q": q or "",
+        "equipo": equipo or "",
+        "decision": decision or "",
+        "valoracion_min": valoracion_min if rating_min is not None else "",
+    }
+    filters["any"] = any(filters.values())
+    return _render(request, "players.html", {**data, "filters": filters})
+
+
+@router.get(
+    "/jugadores/{prospect_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(auth.require_dashboard)],
+)
+async def player_page(request: Request, prospect_id: int):
+    data = await queries.player_detail(prospect_id)
+    if data is None:
+        return _render(
+            request, "not_found.html",
+            {"message": "Ese jugador no existe.", "back": "/dashboard/jugadores"},
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    return _render(request, "player_detail.html", data)

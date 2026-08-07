@@ -20,6 +20,7 @@ from ..models import (
     Session,
     decision_for_rating,
 )
+from ..taxonomy import normalize_name
 
 # Canonical display order for the decision strip, best first.
 DECISION_ORDER = [RATING_DECISIONS[r] for r in (5, 4, 3, 2, 1)]
@@ -169,6 +170,132 @@ async def list_matches(
             }
         )
     return {"matches": rows, "competitions": competitions}
+
+
+async def list_players(
+    *,
+    q: str | None = None,
+    team: str | None = None,
+    decision: str | None = None,  # a decision label, or NO_DECISION
+    rating_min: float | None = None,
+) -> dict:
+    """All prospects, filtered in Python. `q` is accent-insensitive (matched
+    against the same normalized columns the bot keys identities on). Returns
+    distinct teams and the decision labels present so dropdowns reflect data."""
+    prospects = await Prospect.all().prefetch_related("observations")
+    teams = sorted({p.team for p in prospects if p.team})
+    present = {prospect_decision(p) or NO_DECISION for p in prospects}
+    decision_options = [d for d in DECISION_ORDER if d in present]
+    decision_options += sorted(present - set(DECISION_ORDER) - {NO_DECISION})
+    if NO_DECISION in present:
+        decision_options.append(NO_DECISION)
+
+    rows = []
+    for p in prospects:
+        p_decision = prospect_decision(p)
+        if q:
+            qn = normalize_name(q)
+            haystack = f"{p.normalized_name} {p.normalized_team or ''}"
+            if qn not in haystack:
+                continue
+        if team and p.team != team:
+            continue
+        if decision and (p_decision or NO_DECISION) != decision:
+            continue
+        if rating_min is not None and (p.latest_rating or 0) < rating_min:
+            continue
+        rows.append(
+            {
+                "id": p.id,
+                "name": display_name(p),
+                "is_temporary": p.is_temporary or not p.name,
+                "team": p.team,
+                "position": p.position,
+                "rating": p.latest_rating,
+                "decision": p_decision,
+                "matches": len({o.session_id for o in p.observations}),
+                "observations": len(p.observations),
+            }
+        )
+
+    # Rated first (best rating up top), then named players A-Z, temps last.
+    rows.sort(
+        key=lambda r: (
+            r["rating"] is None,
+            -(r["rating"] or 0),
+            r["is_temporary"],
+            r["name"],
+        )
+    )
+    return {"players": rows, "teams": teams, "decision_options": decision_options}
+
+
+async def player_detail(prospect_id: int) -> dict | None:
+    """One prospect: bio header, rating history, observations grouped by match
+    (newest match first, notes in capture order within each)."""
+    p = await Prospect.get_or_none(id=prospect_id)
+    if p is None:
+        return None
+    await p.fetch_related("observations")
+    obs = await (
+        Observation.filter(prospect_id=prospect_id)
+        .order_by("created_at", "id")
+        .prefetch_related("session")
+    )
+
+    by_match: dict[int, dict] = {}
+    history = []
+    for o in obs:
+        s = o.session
+        group = by_match.setdefault(
+            s.id,
+            {
+                "session_id": s.id,
+                "home_team": s.home_team,
+                "away_team": s.away_team,
+                "competition": s.competition,
+                "date": s.match_date or s.created_at,
+                "is_active": s.state == SESSION_ACTIVE,
+                "observations": [],
+            },
+        )
+        group["observations"].append(
+            {
+                "minute": o.minute,
+                "quote": o.raw_quote,
+                "rating": o.rating,
+                "is_substitution": o.is_substitution,
+            }
+        )
+        if o.rating is not None:
+            history.append(
+                {
+                    "rating": o.rating,
+                    "date": s.match_date or s.created_at,
+                    "match": f"{s.home_team} vs {s.away_team}",
+                    "session_id": s.id,
+                }
+            )
+    matches = sorted(by_match.values(), key=lambda g: g["date"], reverse=True)
+
+    return {
+        "player": {
+            "id": p.id,
+            "name": display_name(p),
+            "is_temporary": p.is_temporary or not p.name,
+            "team": p.team,
+            "position": p.position,
+            "age": p.age,
+            "height_cm": p.height_cm,
+            "rating": p.latest_rating,
+            "decision": prospect_decision(p),
+            "notes": p.notes,
+            "matches": len(matches),
+            "observations": len(obs),
+        },
+        "matches": matches,
+        "rating_history": history,
+    }
 
 
 async def match_detail(session_id: int) -> dict | None:

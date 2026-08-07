@@ -74,7 +74,7 @@
     <tbody>
       {% for p in top_players %}
       <tr>
-        <td>{{ p.name }}</td>
+        <td><a href="/dashboard/jugadores/{{ p.id }}">{{ p.name }}</a></td>
         <td>{{ p.team or "—" }}</td>
         <td class="num rating">{{ p.rating | valoracion }} / 5</td>
         <td>{% if p.decision %}<span class="chip small">{{ p.decision }}</span>{% else %}—{% endif %}</td>
