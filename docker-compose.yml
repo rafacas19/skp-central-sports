@@ -39,6 +39,8 @@ services:
       WEBHOOK_BASE_URL: ${WEBHOOK_BASE_URL:-}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
       API_KEY: ${API_KEY:-dev-key}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-dev-dashboard}
+      DASHBOARD_SECRET: ${DASHBOARD_SECRET:-}
       PORT: "10000"
     ports:
       - "10000:10000"

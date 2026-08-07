@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}Panel de Scouting{% endblock %}</title>
+<link rel="stylesheet" href="/dashboard/static/dashboard.css">
+</head>
+<body>
+{% block chrome %}
+<header class="topbar">
+  <a class="brand" href="/dashboard">⚽ Panel de Scouting</a>
+  <nav>
+    {% for label, href in nav %}
+    <a href="{{ href }}" {% if path == href or (href != "/dashboard" and path.startswith(href + "/")) %}class="active"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <form class="logout" method="post" action="/dashboard/logout">
+    <button type="submit">Salir</button>
+  </form>
+</header>
+{% endblock %}
+<main>
+{% block content %}{% endblock %}
+</main>
+<footer>Skip Central Sports · Bot de Scouting</footer>
+</body>
+</html>

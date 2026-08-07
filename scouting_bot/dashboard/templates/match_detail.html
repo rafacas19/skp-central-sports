@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ match.home_team }} vs {{ match.away_team }} — Panel de Scouting{% endblock %}
+{% block content %}
+<p><a class="back" href="/dashboard/partidos">← Partidos</a></p>
+<h1>{{ match.home_team }} vs {{ match.away_team }}
+  {% if match.is_active %}<span class="badge live">En vivo</span>{% endif %}
+</h1>
+
+<section class="meta">
+  <div><span class="meta-label">Fecha</span>{{ match.date | fecha }}</div>
+  {% if match.competition %}<div><span class="meta-label">Competición</span>{{ match.competition }}</div>{% endif %}
+  {% if match.category %}<div><span class="meta-label">Categoría</span>{{ match.category }}</div>{% endif %}
+  {% if match.location %}<div><span class="meta-label">Sede</span>{{ match.location }}</div>{% endif %}
+  {% if match.scout_name %}<div><span class="meta-label">Ojeador</span>{{ match.scout_name }}</div>{% endif %}
+  {% if match.first_half_started_at %}
+  <div><span class="meta-label">Primer tiempo</span>{{ match.first_half_started_at | hora }}</div>
+  {% endif %}
+  {% if match.second_half_started_at %}
+  <div><span class="meta-label">Segundo tiempo</span>{{ match.second_half_started_at | hora }}</div>
+  {% endif %}
+  <div><span class="meta-label">Jugadores</span>{{ match.players }}</div>
+  <div><span class="meta-label">Observaciones</span>{{ match.observations }}</div>
+</section>
+
+<section>
+  <h2>Observaciones</h2>
+  {% if timeline %}
+  <ul class="timeline">
+    {% for o in timeline %}
+    <li>
+      <span class="min">{{ o.minute | minuto }}</span>
+      <div class="entry">
+        <div class="who">
+          {% if o.prospect_id %}<a href="/dashboard/jugadores/{{ o.prospect_id }}">{% endif %}
+          {%- if o.player_name %}{{ o.player_name }}{% elif o.player_number is not none %}Dorsal {{ o.player_number }}{% else %}—{% endif %}
+          {%- if o.prospect_id %}</a>{% endif %}
+          {% if o.player_name and o.player_number is not none %}<span class="muted">· {{ o.player_number }}</span>{% endif %}
+          {% if o.team %}<span class="muted">· {{ o.team }}</span>{% endif %}
+          {% if o.is_substitution %}<span class="badge sub">Cambio</span>{% endif %}
+          {% if o.rating is not none %}<span class="chip small">{{ o.rating | valoracion }} / 5</span>{% endif %}
+        </div>
+        <div class="quote">{{ o.quote }}</div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Sin observaciones registradas.</p>
+  {% endif %}
+</section>
+
+{% if team_notes %}
+<section>
+  <h2>Notas de equipo</h2>
+  <ul class="team-notes">
+    {% for n in team_notes %}
+    <li><strong>{{ n.team or "Equipo" }}</strong>: {{ n.quote }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

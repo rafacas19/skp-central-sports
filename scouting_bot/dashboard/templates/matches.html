@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Partidos — Panel de Scouting{% endblock %}
+{% block content %}
+<h1>Partidos</h1>
+
+<form class="filters" method="get" action="/dashboard/partidos">
+  <label>Competición
+    <select name="competicion">
+      <option value="">Todas</option>
+      {% for c in competitions %}
+      <option value="{{ c }}" {% if filters.competicion == c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Estado
+    <select name="estado">
+      <option value="">Todos</option>
+      <option value="activo" {% if filters.estado == "activo" %}selected{% endif %}>En vivo</option>
+      <option value="finalizado" {% if filters.estado == "finalizado" %}selected{% endif %}>Finalizado</option>
+    </select>
+  </label>
+  <label>Desde <input type="date" name="desde" value="{{ filters.desde }}"></label>
+  <label>Hasta <input type="date" name="hasta" value="{{ filters.hasta }}"></label>
+  <button type="submit">Filtrar</button>
+  {% if filters.any %}<a class="clear" href="/dashboard/partidos">Limpiar</a>{% endif %}
+</form>
+
+{% if matches %}
+<table>
+  <thead>
+    <tr><th>Partido</th><th>Fecha</th><th>Competición</th><th>Sede</th><th>Ojeador</th><th>Jugadores</th><th>Obs.</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for m in matches %}
+    <tr>
+      <td><a href="/dashboard/partidos/{{ m.id }}">{{ m.home_team }} vs {{ m.away_team }}</a></td>
+      <td>{{ m.date | fecha }}</td>
+      <td>{{ m.competition or "—" }}</td>
+      <td>{{ m.location or "—" }}</td>
+      <td>{{ m.scout_name or "—" }}</td>
+      <td class="num">{{ m.players }}</td>
+      <td class="num">{{ m.observations }}</td>
+      <td>{% if m.is_active %}<span class="badge live">En vivo</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% elif filters.any %}
+<p class="muted">No hay partidos que coincidan con los filtros.</p>
+{% else %}
+<p class="muted">Todavía no hay partidos registrados.</p>
+{% endif %}
+{% endblock %}

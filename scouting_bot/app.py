@@ -23,6 +23,8 @@ from telegram import Update
 
 from .bot import build_application
 from .config import settings
+from .dashboard import router as dashboard_router
+from .dashboard import static_files as dashboard_static
 from .db import close_db, init_db
 from .report import build_markdown, build_summary
 from .storage import Storage
@@ -121,10 +123,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Scouting Bot",
-    description="Telegram match-scouting bot + read API.",
+    description="Telegram match-scouting bot + read API + dashboard.",
     version="2.0.0",
     lifespan=lifespan,
 )
+
+# Server-rendered dashboard (cookie auth, Spanish UI). The static mount serves
+# its stylesheet; it's registered before the router but paths never collide
+# (/dashboard/static/* vs page routes).
+app.mount("/dashboard/static", dashboard_static, name="dashboard-static")
+app.include_router(dashboard_router)
 
 
 # ── Telegram webhook ─────────────────────────────────────────────────────

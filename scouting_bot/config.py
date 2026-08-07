@@ -111,6 +111,13 @@ class Settings:
     # When empty, those endpoints return 503 (disabled) rather than open.
     api_key: str
 
+    # ── Dashboard (server-rendered web UI) ───────────────────────────────
+    # Shared password for /dashboard. Empty ⇒ dashboard disabled (503), same
+    # philosophy as api_key. The secret signs the session cookie; when unset it
+    # falls back to the password so one env var is enough for local dev.
+    dashboard_password: str
+    dashboard_secret: str
+
     @classmethod
     def from_env(cls) -> "Settings":
         s = cls(
@@ -128,6 +135,8 @@ class Settings:
             webhook_base_url=_https_url("WEBHOOK_BASE_URL", "RENDER_EXTERNAL_URL"),
             webhook_secret=_telegram_secret("WEBHOOK_SECRET"),
             api_key=os.getenv("API_KEY", ""),
+            dashboard_password=os.getenv("DASHBOARD_PASSWORD", ""),
+            dashboard_secret=os.getenv("DASHBOARD_SECRET", ""),
         )
         s.validate()
         return s

@@ -129,6 +129,11 @@ class Prospect(Model):
     is_temporary = fields.BooleanField(default=False)
     photo_file_id = fields.TextField(null=True)  # Telegram file_id (MVP storage)
     notes = fields.TextField(null=True)
+    # Cached dashboard AI summary. The obs-count watermark marks which state it
+    # was generated from; when it drifts, the dashboard refreshes in the
+    # background (see dashboard/summaries.py).
+    ai_summary = fields.TextField(null=True)
+    ai_summary_obs_count = fields.IntField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
 
     observations: fields.ReverseRelation["Observation"]
