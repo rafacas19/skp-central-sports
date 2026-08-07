@@ -36,13 +36,19 @@ async def client(storage):
 
 @pytest.fixture
 def dashboard_auth():
-    """Configure the dashboard password for a test; restore afterwards."""
+    """Configure the dashboard password for a test; restore afterwards. Also
+    pins mock AI: the AI-summary routes resolve the provider from settings at
+    call time, and tests must never depend on the host's .env (nor spend real
+    API tokens) — the rest of the suite injects MockAIProvider explicitly."""
     old_pw = _set("dashboard_password", PASSWORD)
     old_secret = _set("dashboard_secret", "")
+    old_mock = settings.use_mock_ai
+    object.__setattr__(settings, "use_mock_ai", True)
     auth._attempts.clear()
     yield
     _set("dashboard_password", old_pw)
     _set("dashboard_secret", old_secret)
+    object.__setattr__(settings, "use_mock_ai", old_mock)
     auth._attempts.clear()
 
 
@@ -394,6 +400,74 @@ async def test_player_not_found(client, dashboard_auth):
     resp = await client.get("/dashboard/jugadores/9999")
     assert resp.status_code == 404
     assert "no existe" in resp.text
+
+
+# ── AI summary cache ─────────────────────────────────────────────────────
+async def test_ai_summary_generated_on_first_view(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ferrin"].id
+
+    resp = await client.get(f"/dashboard/jugadores/{pid}")
+    assert resp.status_code == 200
+    assert "Resumen IA" in resp.text
+    assert "Recomendación" in resp.text  # mock provider's deterministic output
+
+    p = await Prospect.get(id=pid)
+    assert p.ai_summary
+    assert p.ai_summary_obs_count == 2  # both Ferrin observations
+
+
+async def test_ai_summary_served_from_cache(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ferrin"].id
+    await client.get(f"/dashboard/jugadores/{pid}")  # generates + caches
+
+    # Plant a sentinel: with an unchanged obs count it must be served verbatim,
+    # with no regeneration and no refresh notice.
+    await Prospect.filter(id=pid).update(ai_summary="RESUMEN CENTINELA")
+    resp = await client.get(f"/dashboard/jugadores/{pid}")
+    assert "RESUMEN CENTINELA" in resp.text
+    assert "actualizando" not in resp.text
+    p = await Prospect.get(id=pid)
+    assert p.ai_summary == "RESUMEN CENTINELA"
+
+
+async def test_ai_summary_stale_while_revalidate(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ferrin"].id
+    await client.get(f"/dashboard/jugadores/{pid}")
+    await Prospect.filter(id=pid).update(ai_summary="RESUMEN CENTINELA")
+
+    # A new observation makes the watermark drift.
+    await Observation.create(
+        session=seeded["live"], prospect=seeded["ferrin"],
+        player_name="Jordan Ferrin", raw_quote="Gol de cabeza", minute=80,
+    )
+
+    # The stale summary is served instantly, flagged as refreshing.
+    resp = await client.get(f"/dashboard/jugadores/{pid}")
+    assert "RESUMEN CENTINELA" in resp.text
+    assert "actualizando" in resp.text
+
+    # The background refresh ran after the response: cache is fresh now.
+    p = await Prospect.get(id=pid)
+    assert p.ai_summary != "RESUMEN CENTINELA"
+    assert p.ai_summary_obs_count == 3
+
+    resp = await client.get(f"/dashboard/jugadores/{pid}")
+    assert "RESUMEN CENTINELA" not in resp.text
+    assert "actualizando" not in resp.text
+
+
+async def test_ai_summary_absent_without_observations(client, dashboard_auth):
+    p = await Prospect.create(agent_chat_id=1, name="Nuevo", normalized_name="nuevo")
+    await _login(client)
+    resp = await client.get(f"/dashboard/jugadores/{p.id}")
+    assert resp.status_code == 200
+    assert "Resumen IA" not in resp.text
 
 
 # ── Decision board ───────────────────────────────────────────────────────

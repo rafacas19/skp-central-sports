@@ -11,13 +11,13 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..config import settings
-from . import auth, queries
+from . import auth, queries, summaries
 
 router = APIRouter(prefix="/dashboard", include_in_schema=False)
 
@@ -232,7 +232,7 @@ async def decisions_page(request: Request):
     response_class=HTMLResponse,
     dependencies=[Depends(auth.require_dashboard)],
 )
-async def player_page(request: Request, prospect_id: int):
+async def player_page(request: Request, prospect_id: int, background_tasks: BackgroundTasks):
     data = await queries.player_detail(prospect_id)
     if data is None:
         return _render(
@@ -240,4 +240,5 @@ async def player_page(request: Request, prospect_id: int):
             {"message": "Ese jugador no existe.", "back": "/dashboard/jugadores"},
             status_code=status.HTTP_404_NOT_FOUND,
         )
-    return _render(request, "player_detail.html", data)
+    summary = await summaries.get_or_refresh(prospect_id, background_tasks)
+    return _render(request, "player_detail.html", {**data, "summary": summary})

@@ -25,6 +25,41 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _opponent(session: Session, team: str) -> str:
+    from .taxonomy import normalize_name
+
+    if not team:
+        return ""
+    nt = normalize_name(team)
+    if nt == normalize_name(session.home_team):
+        return session.away_team
+    if nt == normalize_name(session.away_team):
+        return session.home_team
+    return ""
+
+
+def obs_to_summary_dict(o: Observation) -> dict:
+    """Shape one observation (with its session prefetched) into the dict the
+    AI summarizer expects. Module-level so the dashboard's cached summaries use
+    the exact same payload as the bot's /reporte_jugador."""
+    session = getattr(o, "session", None)
+    team = o.team or ""
+    return {
+        "date": o.created_at.strftime("%Y-%m-%d") if o.created_at else "",
+        "match": (
+            f"{session.home_team} vs {session.away_team}" if session else ""
+        ),
+        "team": team,
+        "opponent": _opponent(session, team) if session else "",
+        "position": o.player_position or "",
+        "number": o.player_number,
+        "observation": o.raw_quote,
+        "rating": o.rating,
+        "source": o.source or "",
+        "scout": (session.scout_name if session else None) or "",
+    }
+
+
 # Inline manual rating: "... valoración 4", "valoracion: 5", "rating 3".
 _RATING_RE = re.compile(
     r"\b(?:valoraci[oó]n|rating|nota)\s*:?\s*(\d(?:[.,]\d)?)\b", re.IGNORECASE
@@ -490,35 +525,11 @@ class ScoutingService:
         return out
 
     def _obs_to_dict(self, o: Observation) -> dict:
-        session = getattr(o, "session", None)
-        team = o.team or ""
-        return {
-            "date": o.created_at.strftime("%Y-%m-%d") if o.created_at else "",
-            "match": (
-                f"{session.home_team} vs {session.away_team}" if session else ""
-            ),
-            "team": team,
-            "opponent": self._opponent(session, team) if session else "",
-            "position": o.player_position or "",
-            "number": o.player_number,
-            "observation": o.raw_quote,
-            "rating": o.rating,
-            "source": o.source or "",
-            "scout": (session.scout_name if session else None) or "",
-        }
+        return obs_to_summary_dict(o)
 
     @staticmethod
     def _opponent(session: Session, team: str) -> str:
-        from .taxonomy import normalize_name
-
-        if not team:
-            return ""
-        nt = normalize_name(team)
-        if nt == normalize_name(session.home_team):
-            return session.away_team
-        if nt == normalize_name(session.away_team):
-            return session.home_team
-        return ""
+        return _opponent(session, team)
 
     async def capture_to_prospect(
         self, session: Session, text: str, prospect: Prospect, source: str = "text"

@@ -19,6 +19,20 @@
   <div><span class="meta-label">Observaciones</span>{{ player.observations }}</div>
 </section>
 
+{% if summary.text or summary.failed %}
+<section>
+  <h2>Resumen IA</h2>
+  {% if summary.text %}
+  <div class="ai-summary">{{ summary.text }}</div>
+  {% if summary.refreshing %}
+  <p class="muted">Hay observaciones nuevas — el resumen se está actualizando; recarga en un momento.</p>
+  {% endif %}
+  {% else %}
+  <p class="muted">No se pudo generar el resumen ahora mismo; las notas completas están abajo.</p>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if player.notes %}
 <section>
   <h2>Notas</h2>
