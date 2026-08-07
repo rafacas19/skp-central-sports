@@ -9,9 +9,13 @@ parameter here and nowhere else.
 
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
+
 from ..models import (
     RATING_DECISIONS,
     SESSION_ACTIVE,
+    Observation,
     Prospect,
     Session,
     decision_for_rating,
@@ -20,6 +24,18 @@ from ..models import (
 # Canonical display order for the decision strip, best first.
 DECISION_ORDER = [RATING_DECISIONS[r] for r in (5, 4, 3, 2, 1)]
 NO_DECISION = "Sin valorar"
+
+# The scout works in Colombia; timestamps are stored UTC. All display (and the
+# date filters, so what you see is what you filter) uses this timezone.
+TZ = ZoneInfo("America/Bogota")
+
+
+def _local_date(value: datetime | None) -> date | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(TZ).date()
 
 
 def prospect_decision(p: Prospect) -> str | None:
@@ -109,4 +125,99 @@ async def overview() -> dict:
         "decisions": decisions,
         "recent_sessions": recent,
         "top_players": top_players,
+    }
+
+
+async def list_matches(
+    *,
+    competition: str | None = None,
+    state: str | None = None,  # "activo" | "finalizado" | None (todos)
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> dict:
+    """All matches newest-first, filtered in Python (tens of rows). Also returns
+    the distinct competitions so the filter dropdown reflects real data."""
+    sessions = await Session.all().prefetch_related("observations").order_by("-created_at")
+    competitions = sorted({s.competition for s in sessions if s.competition})
+
+    rows = []
+    for s in sessions:
+        if competition and s.competition != competition:
+            continue
+        is_active = s.state == SESSION_ACTIVE
+        if state == "activo" and not is_active:
+            continue
+        if state == "finalizado" and is_active:
+            continue
+        day = _local_date(s.match_date or s.created_at)
+        if date_from and day < date_from:
+            continue
+        if date_to and day > date_to:
+            continue
+        rows.append(
+            {
+                "id": s.id,
+                "home_team": s.home_team,
+                "away_team": s.away_team,
+                "date": s.match_date or s.created_at,
+                "competition": s.competition,
+                "location": s.location,
+                "scout_name": s.scout_name,
+                "is_active": is_active,
+                "players": len({o.prospect_id for o in s.observations if o.prospect_id}),
+                "observations": len(s.observations),
+            }
+        )
+    return {"matches": rows, "competitions": competitions}
+
+
+async def match_detail(session_id: int) -> dict | None:
+    """One match: metadata header + the full annotation timeline."""
+    s = await Session.get_or_none(id=session_id)
+    if s is None:
+        return None
+    # created_at is the true chronology (notes are captured live); the stored
+    # minute is display metadata and can jump backwards after a clock resync.
+    obs = await Observation.filter(session_id=session_id).order_by("created_at", "id")
+
+    timeline = [
+        {
+            "minute": o.minute,
+            "player_name": o.player_name,
+            "player_number": o.player_number,
+            "prospect_id": o.prospect_id,
+            "team": o.team,
+            "quote": o.raw_quote,
+            "rating": o.rating,
+            "is_substitution": o.is_substitution,
+            "source": o.source,
+        }
+        for o in obs
+        if not o.is_team_note
+    ]
+    team_notes = [
+        {"team": o.team, "quote": o.raw_quote, "minute": o.minute}
+        for o in obs
+        if o.is_team_note
+    ]
+
+    return {
+        "match": {
+            "id": s.id,
+            "home_team": s.home_team,
+            "away_team": s.away_team,
+            "date": s.match_date or s.created_at,
+            "competition": s.competition,
+            "category": s.category,
+            "location": s.location,
+            "scout_name": s.scout_name,
+            "is_active": s.state == SESSION_ACTIVE,
+            "first_half_started_at": s.first_half_started_at,
+            "second_half_started_at": s.second_half_started_at,
+            "ended_at": s.ended_at,
+            "players": len({o.prospect_id for o in obs if o.prospect_id}),
+            "observations": len(obs),  # all annotations, matching the list column
+        },
+        "timeline": timeline,
+        "team_notes": team_notes,
     }

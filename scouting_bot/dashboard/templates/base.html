@@ -13,7 +13,7 @@
   <a class="brand" href="/dashboard">⚽ Panel de Scouting</a>
   <nav>
     {% for label, href in nav %}
-    <a href="{{ href }}" {% if path == href %}class="active"{% endif %}>{{ label }}</a>
+    <a href="{{ href }}" {% if path == href or (href != "/dashboard" and path.startswith(href + "/")) %}class="active"{% endif %}>{{ label }}</a>
     {% endfor %}
   </nav>
   <form class="logout" method="post" action="/dashboard/logout">

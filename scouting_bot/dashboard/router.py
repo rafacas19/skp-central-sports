@@ -8,9 +8,8 @@ without dead links.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -27,10 +26,13 @@ static_files = StaticFiles(directory=_BASE / "static")
 templates = Jinja2Templates(directory=_BASE / "templates")
 
 # The scout works in Colombia; timestamps are stored UTC.
-_TZ = ZoneInfo("America/Bogota")
+_TZ = queries.TZ
 
-# (label, href) — extended by later phases (Partidos, Jugadores, Decisiones).
-NAV = [("Resumen", "/dashboard")]
+# (label, href) — extended by later phases (Jugadores, Decisiones).
+NAV = [
+    ("Resumen", "/dashboard"),
+    ("Partidos", "/dashboard/partidos"),
+]
 
 
 def _fecha(value: datetime | None) -> str:
@@ -42,6 +44,15 @@ def _fecha(value: datetime | None) -> str:
     return value.astimezone(_TZ).strftime("%d/%m/%Y")
 
 
+def _hora(value: datetime | None) -> str:
+    """HH:MM in the scout's timezone; empty for None."""
+    if value is None:
+        return ""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(_TZ).strftime("%H:%M")
+
+
 def _valoracion(value: float | None) -> str:
     """A 1–5 rating without a spurious trailing .0 (4.0 → «4», 4.5 → «4.5»)."""
     if value is None:
@@ -49,13 +60,24 @@ def _valoracion(value: float | None) -> str:
     return f"{value:g}"
 
 
+def _minuto(value: int | None) -> str:
+    return f"{value}'" if value is not None else "—"
+
+
 templates.env.filters["fecha"] = _fecha
+templates.env.filters["hora"] = _hora
 templates.env.filters["valoracion"] = _valoracion
+templates.env.filters["minuto"] = _minuto
 
 
-def _render(request: Request, template: str, context: dict) -> HTMLResponse:
+def _render(
+    request: Request, template: str, context: dict, status_code: int = 200
+) -> HTMLResponse:
     return templates.TemplateResponse(
-        request, template, {"nav": NAV, "path": request.url.path, **context}
+        request,
+        template,
+        {"nav": NAV, "path": request.url.path, **context},
+        status_code=status_code,
     )
 
 
@@ -112,3 +134,55 @@ async def logout():
 async def overview(request: Request):
     data = await queries.overview()
     return _render(request, "overview.html", data)
+
+
+def _parse_date(raw: str | None) -> date | None:
+    """A YYYY-MM-DD query param; anything malformed is treated as unset."""
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+@router.get(
+    "/partidos", response_class=HTMLResponse, dependencies=[Depends(auth.require_dashboard)]
+)
+async def matches_page(
+    request: Request,
+    competicion: str | None = None,
+    estado: str | None = None,
+    desde: str | None = None,
+    hasta: str | None = None,
+):
+    data = await queries.list_matches(
+        competition=competicion or None,
+        state=estado or None,
+        date_from=_parse_date(desde),
+        date_to=_parse_date(hasta),
+    )
+    filters = {
+        "competicion": competicion or "",
+        "estado": estado or "",
+        "desde": desde or "",
+        "hasta": hasta or "",
+    }
+    filters["any"] = any(filters.values())
+    return _render(request, "matches.html", {**data, "filters": filters})
+
+
+@router.get(
+    "/partidos/{session_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(auth.require_dashboard)],
+)
+async def match_page(request: Request, session_id: int):
+    data = await queries.match_detail(session_id)
+    if data is None:
+        return _render(
+            request, "not_found.html",
+            {"message": "Ese partido no existe.", "back": "/dashboard/partidos"},
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    return _render(request, "match_detail.html", data)

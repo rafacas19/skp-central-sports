@@ -49,7 +49,7 @@
     <tbody>
       {% for s in recent_sessions %}
       <tr>
-        <td>{{ s.home_team }} vs {{ s.away_team }}</td>
+        <td><a href="/dashboard/partidos/{{ s.id }}">{{ s.home_team }} vs {{ s.away_team }}</a></td>
         <td>{{ s.date | fecha }}</td>
         <td>{{ s.competition or "—" }}</td>
         <td class="num">{{ s.players }}</td>
