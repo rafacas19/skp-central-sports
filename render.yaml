@@ -38,6 +38,14 @@ services:
       - key: API_KEY
         generateValue: true       # required in X-API-Key for /sessions endpoints
 
+      # ── Dashboard (/dashboard web UI) ───────────────────────────────────
+      # Until DASHBOARD_PASSWORD is set in the Render dashboard, /dashboard
+      # returns 503 (disabled). The secret signs the session cookie.
+      - key: DASHBOARD_PASSWORD
+        sync: false               # choose a password in the dashboard (secret)
+      - key: DASHBOARD_SECRET
+        generateValue: true
+
       # ── Telegram ───────────────────────────────────────────────────────
       - key: TELEGRAM_BOT_TOKEN
         sync: false               # set in the dashboard (secret)

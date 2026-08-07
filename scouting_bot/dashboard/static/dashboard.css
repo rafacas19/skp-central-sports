@@ -1,0 +1,184 @@
+/* Panel de Scouting — same visual identity as the client docs/reports:
+   deep green #14532d on white, minimal chrome, works on a phone. */
+
+:root {
+  --green-900: #0b3d20;
+  --green-800: #14532d;
+  --green-600: #1f7a3d;
+  --green-100: #eaf4ee;
+  --green-050: #f7f9f8;
+  --border: #d8e6dd;
+  --text: #1a1a1a;
+  --muted: #667;
+  --danger: #b3261e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+  color: var(--text);
+  background: var(--green-050);
+  line-height: 1.5;
+}
+
+/* ── Top bar ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  background: var(--green-800);
+  color: #fff;
+  padding: 10px 18px;
+}
+.brand {
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.topbar nav {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+.topbar nav a {
+  color: #d7ecdf;
+  text-decoration: none;
+  padding: 4px 12px;
+  border-radius: 6px;
+}
+.topbar nav a:hover { background: var(--green-900); color: #fff; }
+.topbar nav a.active { background: var(--green-900); color: #fff; font-weight: 600; }
+.logout button {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: #fff;
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.logout button:hover { background: var(--green-900); }
+
+/* ── Layout ── */
+main { max-width: 960px; margin: 0 auto; padding: 18px 16px 40px; }
+footer {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 10px 16px 24px;
+  color: #999;
+  font-size: 0.8rem;
+}
+h1 { color: var(--green-800); font-size: 1.5rem; margin: 12px 0; }
+h2 {
+  color: var(--green-800);
+  font-size: 1.1rem;
+  margin: 26px 0 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.muted { color: var(--muted); font-weight: normal; font-size: 0.9em; }
+.error { color: var(--danger); }
+
+/* ── Stat cards ── */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.card-value { font-size: 1.9rem; font-weight: 700; color: var(--green-800); }
+.card-label { color: var(--muted); font-size: 0.9rem; }
+
+/* ── Chips & badges ── */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  background: var(--green-100);
+  border: 1px solid var(--border);
+  color: var(--green-900);
+  border-radius: 14px;
+  padding: 3px 12px;
+  font-size: 0.9rem;
+}
+.chip.small { font-size: 0.8rem; padding: 1px 9px; white-space: nowrap; }
+.badge {
+  display: inline-block;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.badge.live { background: #e7f4ec; color: var(--green-600); border: 1px solid #b7dcc4; }
+
+/* ── Tables ── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 0.95rem;
+}
+th, td { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: left; }
+th { background: var(--green-100); color: var(--green-800); font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.rating { font-weight: 700; color: var(--green-800); white-space: nowrap; }
+
+/* ── Login ── */
+.login-wrap {
+  min-height: 80vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.login-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--green-800);
+  border-radius: 10px;
+  padding: 28px 30px;
+  width: 100%;
+  max-width: 360px;
+}
+.login-card h1 { margin: 0 0 2px; font-size: 1.25rem; }
+.login-card p { margin: 2px 0 12px; }
+.login-card label { display: block; font-size: 0.9rem; margin-bottom: 4px; }
+.login-card input {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 1rem;
+  margin-bottom: 14px;
+}
+.login-card input:focus { outline: 2px solid var(--green-600); border-color: var(--green-600); }
+.login-card button {
+  width: 100%;
+  background: var(--green-800);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.login-card button:hover { background: var(--green-900); }
+
+/* ── Phone ── */
+@media (max-width: 640px) {
+  .topbar { padding: 8px 12px; }
+  main { padding: 12px 10px 30px; }
+  th, td { padding: 6px 8px; font-size: 0.85rem; }
+}

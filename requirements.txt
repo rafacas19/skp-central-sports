@@ -2,6 +2,10 @@
 fastapi>=0.115,<0.116
 uvicorn[standard]>=0.32,<0.35
 
+# Dashboard (server-rendered pages): templating + login form parsing.
+jinja2>=3.1,<4.0
+python-multipart>=0.0.9,<1.0
+
 # Telegram bot framework.
 # [job-queue] pulls in APScheduler, required for the auto-nudge job.
 # (No [webhooks] extra: FastAPI handles HTTP; PTB only processes updates.)
