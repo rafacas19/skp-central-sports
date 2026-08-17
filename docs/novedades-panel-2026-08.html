@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Novedades — Panel de Scouting</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color: #1a1a1a; line-height: 1.5; font-size: 11.5pt; margin: 0;
+  }
+  header {
+    border-bottom: 3px solid #1f7a3d; padding-bottom: 10px; margin-bottom: 18px;
+  }
+  h1 { font-size: 22pt; margin: 0 0 4px; color: #14532d; }
+  header .sub { color: #555; font-size: 10.5pt; margin: 0; }
+  h2 {
+    font-size: 14pt; color: #14532d; margin: 22px 0 8px;
+    border-bottom: 1px solid #d8e6dd; padding-bottom: 3px;
+  }
+  h3 { font-size: 12pt; color: #0b3d20; margin: 16px 0 4px; }
+  p { margin: 6px 0; }
+  .lead { color: #333; }
+  code {
+    background: #f0f3f1; border: 1px solid #e0e6e2; border-radius: 4px;
+    padding: 1px 5px; font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 9.8pt; color: #0b3d20;
+  }
+  ul { margin: 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  .tag {
+    display: inline-block; font-size: 8.5pt; font-weight: 700;
+    padding: 1px 7px; border-radius: 10px; margin-left: 6px; vertical-align: middle;
+  }
+  .tag-new { background: #e7f4ec; color: #1f7a3d; border: 1px solid #b7dcc4; }
+  .tag-chg { background: #fff4e0; color: #b35c00; border: 1px solid #f0d9a8; }
+  table { border-collapse: collapse; margin: 8px 0; font-size: 10pt; }
+  th, td { border: 1px solid #d8e6dd; padding: 4px 12px; text-align: left; }
+  th { background: #eaf4ee; color: #14532d; }
+  .prev {
+    background: #f7f9f8; border: 1px solid #e0e6e2; border-left: 3px solid #9bbfab;
+    border-radius: 4px; padding: 10px 14px; margin: 10px 0; color: #444; font-size: 10.5pt;
+  }
+  .tip {
+    background: #fffbe9; border: 1px solid #f0e2a8; border-left: 3px solid #d9a800;
+    border-radius: 4px; padding: 10px 14px; margin: 12px 0; font-size: 10.5pt;
+  }
+  .tip strong { color: #8a6d00; }
+  footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #ddd; color: #888; font-size: 9pt; }
+  .avoid-break { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🖥️ Novedades — Panel de Scouting</h1>
+  <p class="sub">Registro de cambios · Agosto de 2026 · Skip Central Sports</p>
+</header>
+
+<p class="lead">Toda la información que registras con el bot ahora se puede consultar
+y <strong>editar</strong> desde un panel web, en el computador o en el teléfono.
+El bot sigue funcionando igual: tú anotas en Telegram durante el partido, y el
+panel es donde revisas, comparas y decides después.</p>
+
+<h2>Versión de agosto de 2026 — «Panel web»</h2>
+
+<h3>🔐 Acceso <span class="tag tag-new">NUEVO</span></h3>
+<ul>
+  <li>Se entra desde el navegador con una <strong>contraseña</strong>. No hay que instalar nada.</li>
+  <li>La sesión queda guardada, así que no pide la contraseña en cada visita.</li>
+  <li>Funciona en el teléfono: el panel se adapta a la pantalla.</li>
+</ul>
+
+<h3>⭐ Pantalla inicial: jugadores destacados <span class="tag tag-new">NUEVO</span></h3>
+<p>Lo primero que ves son <strong>los jugadores que valen la pena</strong>, no un
+resumen de cifras. Están todos en <strong>una sola lista</strong>, ordenados de
+más a menos prioritario, y cada tarjeta lleva su etiqueta para que sepas por qué
+está ahí.</p>
+<p>Entran en esa lista los jugadores en cualquiera de estos estados:</p>
+<table class="avoid-break">
+  <thead><tr><th>Estado</th><th>De dónde sale</th></tr></thead>
+  <tbody>
+    <tr><td><strong>A firmar</strong></td><td>Valoración de 5</td></tr>
+    <tr><td><strong>Avanzar</strong></td><td>Decisión que marcaste tú a mano</td></tr>
+    <tr><td><strong>Muy interesante</strong></td><td>Valoración de 4</td></tr>
+    <tr><td><strong>Interesante</strong></td><td>Valoración de 3</td></tr>
+  </tbody>
+</table>
+<p><em>Avanzar</em> va justo detrás de <em>A firmar</em>: si tomaste esa decisión
+a mano, pesa más que una valoración calculada, aunque el jugador todavía no tenga nota.</p>
+<p>El resto de estados (<em>Pendiente</em>, <em>Seguir observando</em>,
+<em>A seguir</em>, <em>A descartar</em>, <em>Descartar</em>) no ocupan la portada
+—no son jugadores sobre los que haya que actuar ahora—, pero siguen visibles justo
+debajo, en la fila de <strong>Todas las decisiones</strong>, y en el tablero de decisiones.</p>
+<ul>
+  <li>Cada tarjeta muestra foto (si la enviaste al bot), nombre, estado, posición,
+  edad, club, pie, valor estimado y la valoración.</li>
+  <li><strong>Tendencia:</strong> una flecha indica si el jugador mejoró o bajó
+  respecto al partido anterior.</li>
+  <li><strong>Aviso «solo 1 partido»:</strong> marca a quien has visto una sola vez,
+  para que sepas cuánto peso tiene esa valoración.</li>
+</ul>
+
+<h3>✏️ Edición de la ficha del jugador <span class="tag tag-new">NUEVO</span></h3>
+<p>Ya no hace falta pasar por el bot para corregir datos. Desde la ficha se edita todo:</p>
+<ul>
+  <li>Nombre, equipo, posición, dorsal, valoración y decisión.</li>
+  <li><strong>Poner nombre a los jugadores «sin identificar»</strong> — esos perfiles
+  que quedaron solo con el número de camiseta.</li>
+  <li><strong>Fusionar perfiles repetidos</strong>: si un mismo jugador quedó
+  guardado dos veces, se unen en uno y se conservan todas sus observaciones.</li>
+</ul>
+
+<h3>📋 Nuevos datos de ficha <span class="tag tag-new">NUEVO</span></h3>
+<table class="avoid-break">
+  <thead><tr><th>Campo</th><th>Para qué</th></tr></thead>
+  <tbody>
+    <tr><td>Pie</td><td>Izquierdo, derecho o ambidiestro</td></tr>
+    <tr><td>Dorsal</td><td>Número habitual de camiseta</td></tr>
+    <tr><td>Año de nacimiento</td><td>La edad se calcula sola y nunca queda desactualizada</td></tr>
+    <tr><td>Nacionalidad · Peso · Estatura</td><td>Perfil físico completo</td></tr>
+    <tr><td>Procedencia</td><td>Club o academia de origen</td></tr>
+    <tr><td>Valor de mercado (USD)</td><td>Tu estimación económica del jugador</td></tr>
+    <tr><td>Contrato hasta</td><td>Año de finalización del contrato</td></tr>
+    <tr><td>Agente y teléfono</td><td>Contacto para negociar</td></tr>
+  </tbody>
+</table>
+
+<h3>🎯 Posiciones ordenadas <span class="tag tag-chg">CAMBIADO</span></h3>
+<p>Las posiciones ahora siguen una lista estándar (Portero, Defensa central,
+Lateral izquierdo/derecho, Pivote, Mediocentro, Mediocentro ofensivo, Mediapunta,
+Extremo izquierdo/derecho, Delantero centro), agrupadas por línea. Así se puede
+filtrar y comparar por puesto.</p>
+<p>Lo que ya habías escrito <strong>no se modificó</strong>: si anotaste «volante de
+marca», eso se sigue viendo, y el panel lo reconoce como Pivote para agrupar y filtrar.</p>
+
+<h3>🔎 Búsqueda y filtros <span class="tag tag-new">NUEVO</span></h3>
+<ul>
+  <li>Filtra por <strong>posición</strong> (una línea completa o un puesto concreto),
+  <strong>edad</strong> (Sub-17, Sub-20, Sub-23, Mayores de 23), <strong>equipo</strong>,
+  <strong>pie</strong>, <strong>nacionalidad</strong>, <strong>decisión</strong> y
+  <strong>valoración mínima</strong>.</li>
+  <li>Ordena por valoración, edad, valor de mercado o nombre.</li>
+  <li>Los filtros solo ofrecen valores que existen en tus datos, así que nunca
+  llevan a una lista vacía.</li>
+</ul>
+
+<h3>⚽ Partidos y jugadores</h3>
+<ul>
+  <li><strong>Partidos:</strong> listado de todos los encuentros con su fecha,
+  competición, sede y scout, y el detalle de cada uno con la
+  <strong>cronología completa de anotaciones</strong> minuto a minuto, los cambios
+  y las notas de equipo.</li>
+  <li><strong>Jugadores:</strong> ficha con todas las observaciones del jugador
+  <strong>en todos los partidos</strong>, agrupadas por encuentro, más su historial
+  de valoraciones.</li>
+  <li><strong>Resumen con IA:</strong> cada ficha incluye un resumen automático del
+  jugador a partir de todas sus notas, con patrones, fortalezas y recomendación.</li>
+</ul>
+
+<h3>🗂️ Tablero de decisiones <span class="tag tag-new">NUEVO</span></h3>
+<p>Todos los jugadores agrupados por decisión y, dentro de cada grupo,
+<strong>ordenados por posición</strong> (porteros, defensas, centrocampistas,
+delanteros). Es la vista para armar la lista corta puesto por puesto.</p>
+
+<div class="tip avoid-break">
+  <p><strong>Para sacarle el máximo partido</strong></p>
+  <p>La pantalla de destacados y los filtros se alimentan de la
+  <strong>valoración de 1 a 5</strong> y de los datos de ficha. Hoy la mayoría de
+  jugadores registrados aún no tiene valoración ni edad, así que aparecen pocos en
+  la portada.</p>
+  <p>Dos hábitos que lo cambian todo: <strong>poner la valoración</strong> al anotar
+  (<code>Ferrin buen remate valoración 4</code>) y completar de vez en cuando la ficha
+  desde el panel (edad, pie, posición). Con eso, la portada y los filtros pasan a ser
+  la herramienta principal de trabajo.</p>
+</div>
+
+<h2>Antes (versión de junio de 2026)</h2>
+<div class="prev">
+  El bot se volvió un asistente de scouting: cronómetro del partido con
+  <code>/primer_tiempo</code> y <code>/segundo_tiempo</code>, minuto automático en cada
+  observación, registro de sustituciones, valoración de 1 a 5 con decisión automática,
+  informe en Excel al cerrar el partido con <code>/fin</code> e histórico acumulado con
+  <code>/historico</code>.
+</div>
+
+<footer>
+  Skip Central Sports — Bot de Scouting · Novedades del Panel · agosto de 2026
+</footer>
+
+</body>
+</html>

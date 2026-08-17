@@ -1,29 +1,33 @@
 {% extends "base.html" %}
+{% from "_player_card.html" import player_card %}
+{% from "_filters.html" import position_filter, age_filter, team_filter %}
 {% block title %}Decisiones — Panel de Scouting{% endblock %}
 {% block content %}
 <h1>Decisiones</h1>
 <p class="muted">Jugadores agrupados por decisión — la decisión sale de la última valoración (1–5), salvo que se haya fijado a mano.</p>
 
+<form class="filters" method="get" action="/dashboard/decisiones">
+  {{ position_filter(position_options, filters.posicion) }}
+  {{ age_filter(age_options, filters.edad) }}
+  {{ team_filter(teams, filters.equipo) }}
+  <button type="submit">Filtrar</button>
+  {% if filters.any %}<a class="clear" href="/dashboard/decisiones">Limpiar</a>{% endif %}
+</form>
+
 {% if groups %}
 {% for g in groups %}
-<section class="decision-group">
-  <h2>{{ g.label }} <span class="chip small">{{ g.players | length }}</span></h2>
-  <div class="board">
-    {% for p in g.players %}
-    <a class="player-card" href="/dashboard/jugadores/{{ p.id }}">
-      <div class="player-name">{{ p.name }}</div>
-      <div class="muted">
-        {{ p.team or "Equipo desconocido" }}{% if p.position %} · {{ p.position }}{% endif %}
-      </div>
-      <div class="player-foot">
-        {% if p.rating is not none %}<span class="rating">{{ p.rating | valoracion }} / 5</span>{% endif %}
-        <span class="muted">{{ p.matches }} partido{{ "s" if p.matches != 1 }} · {{ p.observations }} obs.</span>
-      </div>
-    </a>
-    {% endfor %}
+<section class="tier">
+  <h2 class="tier-head">{{ g.label }} <span class="tier-count">{{ g.count }}</span></h2>
+  {% for block in g.positions %}
+  <h3 class="position-head">{{ block.category }}</h3>
+  <div class="player-cards">
+    {% for p in block.players %}{{ player_card(p) }}{% endfor %}
   </div>
+  {% endfor %}
 </section>
 {% endfor %}
+{% elif filters.any %}
+<p class="muted">No hay jugadores que coincidan con los filtros.</p>
 {% else %}
 <p class="muted">Todavía no hay jugadores registrados.</p>
 {% endif %}

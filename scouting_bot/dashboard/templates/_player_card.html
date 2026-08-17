@@ -1,0 +1,43 @@
+{# The player card, shared by the home screen and the decision board.
+
+   Anatomy follows how scouting tools present a player in a list: photo (or
+   initials), name, then the identifying line — position badge, age, club — and
+   the headline rating on the right, with the signals that qualify it. #}
+{# `show_decision` is for screens that mix decisions in one list — where the
+   grouping no longer says why the player is there, the card has to. #}
+{% macro player_card(p, show_decision=false) %}
+<a class="player-card" href="/dashboard/jugadores/{{ p.id }}">
+  <div class="avatar">
+    {% if p.has_photo %}
+    <img src="/dashboard/foto/{{ p.id }}" alt="" loading="lazy">
+    {% else %}
+    <span>{{ p.initials }}</span>
+    {% endif %}
+  </div>
+  <div class="player-card-body">
+    <div class="player-card-name">{{ p.name }}</div>
+    <div class="player-card-meta">
+      {% if show_decision and p.decision %}<span class="chip small">{{ p.decision }}</span>{% endif %}
+      {% if p.position_abbr %}<span class="pos-badge">{{ p.position_abbr }}</span>
+      {% elif p.position %}<span>{{ p.position }}</span>{% endif %}
+      {% if p.age %}<span>{{ p.age }} años</span>{% endif %}
+      <span>{{ p.team or "Equipo desconocido" }}</span>
+    </div>
+    <div class="player-card-meta">
+      {% if p.foot %}<span>Pie {{ p.foot }}</span>{% endif %}
+      {% if p.market_value_usd %}<span>{{ p.market_value_usd | valor }}</span>{% endif %}
+      <span>{{ p.matches }} partido{{ "s" if p.matches != 1 }}</span>
+      <span>{{ p.observations }} obs.</span>
+    </div>
+  </div>
+  <div class="player-card-score">
+    {% if p.rating is not none %}
+    <div class="score">{{ p.rating | valoracion }}<span class="score-max">/5</span></div>
+    {% endif %}
+    {% if p.trend == "sube" %}<span class="trend up" title="Mejor que el partido anterior">▲</span>
+    {% elif p.trend == "baja" %}<span class="trend down" title="Peor que el partido anterior">▼</span>
+    {% elif p.trend == "igual" %}<span class="trend flat" title="Igual que el partido anterior">=</span>{% endif %}
+    {% if p.single_match %}<span class="badge single">solo 1 partido</span>{% endif %}
+  </div>
+</a>
+{% endmacro %}

@@ -11,6 +11,8 @@ plain list without awaiting.
 
 from __future__ import annotations
 
+from datetime import date
+
 from tortoise import fields
 from tortoise.models import Model
 
@@ -50,6 +52,13 @@ RATING_DECISIONS = {
 }
 
 
+# Preferred foot — the three values every scouting product uses.
+FOOT_LEFT = "izquierdo"
+FOOT_RIGHT = "derecho"
+FOOT_BOTH = "ambidiestro"
+FEET = (FOOT_LEFT, FOOT_RIGHT, FOOT_BOTH)
+
+
 def decision_for_rating(rating: float | None) -> str | None:
     """Map a 1–5 rating (rounded to the nearest whole) onto its decision label.
 
@@ -59,6 +68,23 @@ def decision_for_rating(rating: float | None) -> str | None:
         return None
     bucket = min(5, max(1, round(rating)))
     return RATING_DECISIONS[bucket]
+
+
+def current_age(
+    birth_year: int | None, stated_age: int | None, today: date | None = None
+) -> int | None:
+    """The age to display: derived from the birth year when we have one, else
+    whatever age the scout stated.
+
+    Only the birth *year* is captured (no full date of birth), so this can be off
+    by one before the player's birthday — the trade-off for a number that never
+    goes stale, and the same convention youth football uses ("categoría 2008").
+    An implausible year is ignored rather than shown."""
+    if birth_year:
+        age = (today or date.today()).year - birth_year
+        if 0 <= age <= 60:
+            return age
+    return stated_age
 
 
 class Session(Model):
@@ -124,6 +150,19 @@ class Prospect(Model):
     position = fields.CharField(max_length=80, null=True)
     age = fields.IntField(null=True)
     height_cm = fields.IntField(null=True)
+    # Scouting bio, all optional and all editable from the dashboard. `birth_year`
+    # supersedes `age` when set (an age captured mid-season goes stale; a birth
+    # year doesn't, and youth football groups players by it) — see `current_age`.
+    birth_year = fields.IntField(null=True)
+    preferred_foot = fields.CharField(max_length=16, null=True)  # FEET
+    shirt_number = fields.IntField(null=True)  # habitual dorsal
+    nationality = fields.TextField(null=True)
+    weight_kg = fields.IntField(null=True)
+    origin_club = fields.TextField(null=True)  # club/academia de procedencia
+    agent_name = fields.TextField(null=True)
+    agent_phone = fields.TextField(null=True)
+    market_value_usd = fields.IntField(null=True)  # scout's estimate, whole USD
+    contract_year = fields.IntField(null=True)  # contrato hasta
     latest_rating = fields.FloatField(null=True)  # manual, 1–5 (decimals allowed)
     decision_status = fields.CharField(max_length=24, null=True)  # DECISION_STATUSES
     is_temporary = fields.BooleanField(default=False)

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_filters.html" import position_filter, age_filter, team_filter, foot_filter, nationality_filter %}
 {% block title %}Jugadores — Panel de Scouting{% endblock %}
 {% block content %}
 <h1>Jugadores</h1>
@@ -7,14 +8,11 @@
   <label>Buscar
     <input type="search" name="q" value="{{ filters.q }}" placeholder="Nombre o equipo">
   </label>
-  <label>Equipo
-    <select name="equipo">
-      <option value="">Todos</option>
-      {% for t in teams %}
-      <option value="{{ t }}" {% if filters.equipo == t %}selected{% endif %}>{{ t }}</option>
-      {% endfor %}
-    </select>
-  </label>
+  {{ position_filter(position_options, filters.posicion) }}
+  {{ age_filter(age_options, filters.edad) }}
+  {{ team_filter(teams, filters.equipo) }}
+  {{ foot_filter(foot_options, filters.pie) }}
+  {{ nationality_filter(nationality_options, filters.nacionalidad) }}
   <label>Decisión
     <select name="decision">
       <option value="">Todas</option>
@@ -31,25 +29,35 @@
       {% endfor %}
     </select>
   </label>
+  <label>Ordenar por
+    <select name="orden">
+      {% for s in sort_options %}
+      <option value="{{ s.key }}" {% if filters.orden == s.key %}selected{% endif %}>{{ s.label }}</option>
+      {% endfor %}
+    </select>
+  </label>
   <button type="submit">Filtrar</button>
   {% if filters.any %}<a class="clear" href="/dashboard/jugadores">Limpiar</a>{% endif %}
 </form>
 
 {% if players %}
+<p class="muted">{{ players | length }} jugador{{ "es" if players | length != 1 }}</p>
 <table>
   <thead>
-    <tr><th>Jugador</th><th>Equipo</th><th>Posición</th><th>Valoración</th><th>Decisión</th><th>Partidos</th><th>Obs.</th></tr>
+    <tr><th>Jugador</th><th>Pos.</th><th>Edad</th><th>Equipo</th><th>Pie</th><th>Valor</th><th>Valoración</th><th>Decisión</th><th>Part.</th></tr>
   </thead>
   <tbody>
     {% for p in players %}
     <tr>
       <td><a href="/dashboard/jugadores/{{ p.id }}">{{ p.name }}</a></td>
+      <td>{% if p.position_abbr %}<span class="pos-badge">{{ p.position_abbr }}</span>{% else %}{{ p.position or "—" }}{% endif %}</td>
+      <td class="num">{{ p.age or "—" }}</td>
       <td>{{ p.team or "—" }}</td>
-      <td>{{ p.position or "—" }}</td>
+      <td>{{ p.foot | capitalize if p.foot else "—" }}</td>
+      <td class="num">{{ p.market_value_usd | valor }}</td>
       <td class="num rating">{% if p.rating is not none %}{{ p.rating | valoracion }} / 5{% else %}—{% endif %}</td>
       <td>{% if p.decision %}<span class="chip small">{{ p.decision }}</span>{% else %}—{% endif %}</td>
       <td class="num">{{ p.matches }}</td>
-      <td class="num">{{ p.observations }}</td>
     </tr>
     {% endfor %}
   </tbody>
