@@ -5,7 +5,7 @@
   <span class="muted">
     {{ p.team or "sin equipo" }}{% if p.position %} · {{ p.position }}{% endif %}
     · {{ p.matches }} partido{{ "s" if p.matches != 1 }}
-    · {{ p.observations }} observación{{ "es" if p.observations != 1 }}
+    · {{ p.observations }} {{ "observaciones" if p.observations != 1 else "observación" }}
     {% if p.rating is not none %} · {{ p.rating | valoracion }} / 5{% endif %}
   </span>
 {% endmacro %}
