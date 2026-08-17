@@ -306,7 +306,7 @@ h1 .chip { vertical-align: middle; font-size: 0.85rem; }
 }
 .player-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 10px;
 }
 .player-card {
@@ -353,6 +353,9 @@ h1 .chip { vertical-align: middle; font-size: 0.85rem; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .player-card-body { flex: 1 1 auto; min-width: 0; }
 .player-card-name { font-weight: 700; }
+/* The decision chip leads the meta row where one list mixes decisions; keeping
+   it off the name line stops long names from wrapping. */
+.player-card-meta .chip { font-weight: 600; padding: 0 8px; }
 .player-card-meta {
   display: flex;
   flex-wrap: wrap;

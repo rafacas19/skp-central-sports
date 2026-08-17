@@ -223,19 +223,20 @@ async def overview() -> dict:
     # act on come first as cards, grouped by decision and best-rated within each
     # group; the rest stay as counts in the decision strip.
     by_session = {s.id: s for s in sessions}
-    featured = []
-    for label in FEATURED_DECISIONS:
-        members = [p for p in prospects if prospect_decision(p) == label]
-        if not members:
+    featured_rank = {label: i for i, label in enumerate(FEATURED_DECISIONS)}
+    cards = []
+    for p in prospects:
+        if prospect_decision(p) not in featured_rank:
             continue
-        cards = []
-        for p in members:
-            row = _player_row(p)
-            row["trend"] = _rating_trend(p, by_session)
-            cards.append(row)
-        featured.append(
-            {"label": label, "players": _rows_sorted(cards), "count": len(cards)}
-        )
+        row = _player_row(p)
+        row["trend"] = _rating_trend(p, by_session)
+        cards.append(row)
+    # One list rather than a section per decision: these are all "act on this
+    # player". The decision still leads the ordering — an explicit Avanzar
+    # outranks a merely well-rated player — and each card carries its own label.
+    # sorted() is stable, so the usual best-rated-first order survives within
+    # each decision.
+    featured = sorted(_rows_sorted(cards), key=lambda r: featured_rank[r["decision"]])
 
     return {
         "totals": {
@@ -249,7 +250,7 @@ async def overview() -> dict:
         },
         "decisions": decisions,
         "featured": featured,
-        "featured_total": sum(g["count"] for g in featured),
+        "featured_total": len(featured),
         "recent_sessions": recent,
     }
 

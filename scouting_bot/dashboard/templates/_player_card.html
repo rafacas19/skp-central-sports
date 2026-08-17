@@ -3,7 +3,9 @@
    Anatomy follows how scouting tools present a player in a list: photo (or
    initials), name, then the identifying line — position badge, age, club — and
    the headline rating on the right, with the signals that qualify it. #}
-{% macro player_card(p) %}
+{# `show_decision` is for screens that mix decisions in one list — where the
+   grouping no longer says why the player is there, the card has to. #}
+{% macro player_card(p, show_decision=false) %}
 <a class="player-card" href="/dashboard/jugadores/{{ p.id }}">
   <div class="avatar">
     {% if p.has_photo %}
@@ -15,6 +17,7 @@
   <div class="player-card-body">
     <div class="player-card-name">{{ p.name }}</div>
     <div class="player-card-meta">
+      {% if show_decision and p.decision %}<span class="chip small">{{ p.decision }}</span>{% endif %}
       {% if p.position_abbr %}<span class="pos-badge">{{ p.position_abbr }}</span>
       {% elif p.position %}<span>{{ p.position }}</span>{% endif %}
       {% if p.age %}<span>{{ p.age }} años</span>{% endif %}

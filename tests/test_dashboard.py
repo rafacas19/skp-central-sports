@@ -804,9 +804,11 @@ async def test_overview_leads_with_featured_players(client, dashboard_auth):
     assert "A seguir" in text
 
 
-async def test_featured_tiers_are_ordered_best_first(client, dashboard_auth):
+async def test_featured_players_share_one_list_ordered_best_first(client, dashboard_auth):
+    """All the act-on-this-player decisions live in a single section, ordered by
+    decision and then by rating, with each card carrying its own label."""
     await _seed()
-    # A second player one tier down.
+    # A second player one decision down.
     await Prospect.create(
         agent_chat_id=1, name="Luis Mina", normalized_name="luis mina",
         team="Millonarios", normalized_team="millonarios", latest_rating=4,
@@ -815,6 +817,8 @@ async def test_featured_tiers_are_ordered_best_first(client, dashboard_auth):
     text = (await client.get("/dashboard")).text
     assert text.index("A firmar") < text.index("Muy interesante")
     assert text.index("Jordan Ferrin") < text.index("Luis Mina")
+    # One grid, not one per decision.
+    assert text.count('class="player-cards"') == 1
 
 
 async def test_manual_advance_status_is_featured(client, dashboard_auth):
@@ -831,8 +835,10 @@ async def test_manual_advance_status_is_featured(client, dashboard_auth):
     assert resp.status_code == 200
     text = resp.text
     assert "Avanzar" in text and "Edwin Rodríguez" in text
-    # Tier order: A firmar (Ferrin, rating 5), then the manual Avanzar call.
+    # Order: A firmar (Ferrin, rating 5), then the manual Avanzar call. Both sit
+    # in the one featured list, each card labelled with its own decision.
     assert text.index("A firmar") < text.index("Avanzar")
+    assert text.count('class="player-cards"') == 1
     assert advancing  # (silence unused-variable linters)
 
 

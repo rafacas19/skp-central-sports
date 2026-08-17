@@ -2,20 +2,17 @@
 {% from "_player_card.html" import player_card %}
 {% block title %}Resumen — Panel de Scouting{% endblock %}
 {% block content %}
-<h1>Jugadores destacados</h1>
+<div class="page-head">
+  <h1>Jugadores destacados {% if featured_total %}<span class="tier-count">{{ featured_total }}</span>{% endif %}</h1>
+</div>
 <p class="muted">Jugadores a firmar, avanzando en el proceso, o con muy buena valoración.</p>
 
 {% if featured %}
-{% for group in featured %}
 <section class="tier">
-  <h2 class="tier-head">
-    {{ group.label }} <span class="tier-count">{{ group.count }}</span>
-  </h2>
   <div class="player-cards">
-    {% for p in group.players %}{{ player_card(p) }}{% endfor %}
+    {% for p in featured %}{{ player_card(p, show_decision=true) }}{% endfor %}
   </div>
 </section>
-{% endfor %}
 {% else %}
 <p class="muted">Todavía no hay jugadores destacados. Los que valores con 3 o más
 aparecerán aquí.</p>
