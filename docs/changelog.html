@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Novedades — Bot de Scouting</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color: #1a1a1a; line-height: 1.5; font-size: 11.5pt; margin: 0;
+  }
+  header {
+    border-bottom: 3px solid #1f7a3d; padding-bottom: 10px; margin-bottom: 18px;
+  }
+  h1 { font-size: 22pt; margin: 0 0 4px; color: #14532d; }
+  header .sub { color: #555; font-size: 10.5pt; margin: 0; }
+  h2 {
+    font-size: 14pt; color: #14532d; margin: 22px 0 8px;
+    border-bottom: 1px solid #d8e6dd; padding-bottom: 3px;
+  }
+  h3 { font-size: 12pt; color: #0b3d20; margin: 16px 0 4px; }
+  p { margin: 6px 0; }
+  .lead { color: #333; }
+  code {
+    background: #f0f3f1; border: 1px solid #e0e6e2; border-radius: 4px;
+    padding: 1px 5px; font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 9.8pt; color: #0b3d20;
+  }
+  ul { margin: 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  .tag {
+    display: inline-block; font-size: 8.5pt; font-weight: 700;
+    padding: 1px 7px; border-radius: 10px; margin-left: 6px; vertical-align: middle;
+  }
+  .tag-new { background: #e7f4ec; color: #1f7a3d; border: 1px solid #b7dcc4; }
+  .tag-chg { background: #fff4e0; color: #b35c00; border: 1px solid #f0d9a8; }
+  table { border-collapse: collapse; margin: 8px 0; font-size: 10pt; }
+  th, td { border: 1px solid #d8e6dd; padding: 4px 12px; text-align: left; }
+  th { background: #eaf4ee; color: #14532d; }
+  .prev {
+    background: #f7f9f8; border: 1px solid #e0e6e2; border-left: 3px solid #9bbfab;
+    border-radius: 4px; padding: 10px 14px; margin: 10px 0; color: #444; font-size: 10.5pt;
+  }
+  footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #ddd; color: #888; font-size: 9pt; }
+  .avoid-break { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🆕 Novedades del Bot de Scouting</h1>
+  <p class="sub">Registro de cambios · Skip Central Sports</p>
+</header>
+
+<p class="lead">Qué es nuevo y cómo usarlo, sin tecnicismos.</p>
+
+<h2>Versión de junio de 2026 — «Asistente inteligente»</h2>
+<p>El bot ahora se comporta menos como una base de datos con comandos y más como un
+asistente de scouting. Tú escribes en lenguaje natural (texto o voz) y el bot
+<strong>agrupa, cronometra, calcula y exporta</strong> por ti.</p>
+
+<h3>⏱️ Cronómetro del partido <span class="tag tag-new">NUEVO</span></h3>
+<ul>
+  <li>Controlas el reloj con dos comandos: <code>/primer_tiempo</code> (arranca en el minuto 0)
+  y <code>/segundo_tiempo</code> (reanuda en el minuto 45).</li>
+  <li><code>/nuevo</code> ya <strong>no</strong> arranca el reloj: tú decides el pitido inicial.</li>
+  <li>El bot avisa al llegar al <strong>minuto 45 y al 90</strong>; el reloj sigue contando el
+  tiempo añadido, no se corta.</li>
+</ul>
+
+<h3>🕐 Minuto en cada observación <span class="tag tag-new">NUEVO</span></h3>
+<ul>
+  <li>Cada nota queda marcada automáticamente con el <strong>minuto de partido</strong>.</li>
+  <li>Si el reloj se desfasa, escribe el minuto real dentro de la observación
+  (p. ej. <code>Ferrin gol min 37</code>) y el bot <strong>re-sincroniza</strong> el cronómetro.</li>
+</ul>
+
+<h3>🔄 Sustituciones <span class="tag tag-new">NUEVO</span></h3>
+<ul>
+  <li>Escribe el cambio con normalidad: <code>Entra Ferrin y sale el número 7</code>.</li>
+  <li>El bot identifica a <strong>quién entra</strong> y lo registra como jugador, para que puedas
+  seguir observándolo el resto del partido.</li>
+  <li>Si el que entra es un número y no está claro el equipo, el bot pregunta.</li>
+</ul>
+
+<h3>⭐ Valoración 1–5 y decisión automática <span class="tag tag-chg">CAMBIADO</span></h3>
+<p>La escala de valoración pasa de 1–10 a <strong>1–5</strong>. La <strong>decisión se calcula
+sola</strong> a partir de la última valoración:</p>
+<table class="avoid-break">
+  <thead><tr><th>Valoración</th><th>Decisión</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>A descartar</td></tr>
+    <tr><td>2</td><td>A seguir</td></tr>
+    <tr><td>3</td><td>Interesante</td></tr>
+    <tr><td>4</td><td>Muy interesante</td></tr>
+    <tr><td>5</td><td>A firmar</td></tr>
+  </tbody>
+</table>
+<p>Ya no necesitas un comando aparte para la decisión en el flujo normal.</p>
+
+<h3>📊 Informe en Excel <span class="tag tag-chg">CAMBIADO</span></h3>
+<ul>
+  <li><code>/fin</code> ahora genera un <strong>archivo Excel (.xlsx) editable</strong> en vez de un CSV.</li>
+  <li>Tres hojas: <strong>Local</strong>, <strong>Visitante</strong> y <strong>Notas equipo</strong>.</li>
+  <li><strong>Una fila por jugador</strong>: todas sus observaciones se agrupan (con sus minutos),
+  más su valoración final y decisión.</li>
+</ul>
+
+<h3>📚 Histórico acumulado <span class="tag tag-new">NUEVO</span></h3>
+<ul>
+  <li>Nuevo comando <code>/historico</code>: exporta un Excel con <strong>todos los jugadores de
+  todos los partidos</strong> (club, fechas, observaciones previas y actuales, valoración,
+  decisión y un resumen global). Es tu base de scouting completa.</li>
+</ul>
+
+<h3>🧹 Flujo más simple <span class="tag tag-chg">CAMBIADO</span></h3>
+<ul>
+  <li>El bot <strong>agrupa</strong> los jugadores repetidos, <strong>actualiza</strong> sus datos
+  desde el lenguaje natural y <strong>genera</strong> la decisión automáticamente.</li>
+  <li>Los comandos que confundían (<code>/unir</code>, <code>/editar</code>, <code>/decision</code>)
+  ya <strong>no aparecen</strong> en la ayuda; el bot los resuelve solo. Siguen disponibles por si acaso.</li>
+  <li>El mensaje de bienvenida (<code>/start</code>) se reescribió con el flujo actualizado.</li>
+</ul>
+
+<h2>Antes (pivote «observación primero»)</h2>
+<div class="prev">
+  El bot ya permitía empezar a observar de inmediato sin subir la alineación:
+  observaciones por texto y voz, identidad del jugador entre partidos, valoración
+  manual (1–10), notas de equipo, informe en CSV, informe por jugador con resumen de
+  IA y detección de nombres duplicados al finalizar. Esta versión construye sobre eso.
+</div>
+
+<footer>
+  Skip Central Sports — Bot de Scouting · Novedades · español
+</footer>
+
+</body>
+</html>
