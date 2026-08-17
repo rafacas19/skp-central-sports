@@ -13,6 +13,7 @@ from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 from ..models import (
+    DECISION_ADVANCE,
     RATING_DECISIONS,
     SESSION_ACTIVE,
     Observation,
@@ -137,8 +138,13 @@ def _rows_sorted(rows: list[dict]) -> list[dict]:
 
 # Decisions worth putting on the home screen, best first. Everything below these
 # is a count and a link, not a card — the landing page is for players the scout
-# should act on.
-FEATURED_DECISIONS = [RATING_DECISIONS[r] for r in (5, 4, 3)]
+# should act on. Mixes the rating-derived ladder with DECISION_ADVANCE: a scout's
+# deliberate "move this player forward" call via the legacy /decision command is
+# as actionable as a top rating, even without one. The other three legacy
+# statuses stay off the home screen: Pendiente is "no decision yet" (nothing to
+# act on), Seguir observando sits at the same watch-list tier as the rating-2
+# "A seguir" (also not featured), and Descartar is negative.
+FEATURED_DECISIONS = [RATING_DECISIONS[5], DECISION_ADVANCE, RATING_DECISIONS[4], RATING_DECISIONS[3]]
 
 
 def _rating_trend(p: Prospect, sessions: dict[int, Session]) -> str | None:

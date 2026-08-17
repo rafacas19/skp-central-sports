@@ -817,6 +817,43 @@ async def test_featured_tiers_are_ordered_best_first(client, dashboard_auth):
     assert text.index("Jordan Ferrin") < text.index("Luis Mina")
 
 
+async def test_manual_advance_status_is_featured(client, dashboard_auth):
+    """A scout's explicit /decision "Avanzar" call is as actionable as a top
+    rating, even without one — it must surface as its own card, not just a
+    count in the decision strip."""
+    await _seed()
+    advancing = await Prospect.create(
+        agent_chat_id=1, name="Edwin Rodríguez", normalized_name="edwin rodriguez",
+        team="América", normalized_team="america", decision_status="Avanzar",
+    )
+    await _login(client)
+    resp = await client.get("/dashboard")
+    assert resp.status_code == 200
+    text = resp.text
+    assert "Avanzar" in text and "Edwin Rodríguez" in text
+    # Tier order: A firmar (Ferrin, rating 5), then the manual Avanzar call.
+    assert text.index("A firmar") < text.index("Avanzar")
+    assert advancing  # (silence unused-variable linters)
+
+
+async def test_watch_and_pending_statuses_stay_off_the_home_screen(client, dashboard_auth):
+    await _seed()
+    await Prospect.create(
+        agent_chat_id=1, name="En Espera", normalized_name="en espera",
+        decision_status="Pendiente",
+    )
+    await Prospect.create(
+        agent_chat_id=1, name="Aun Mirando", normalized_name="aun mirando",
+        decision_status="Seguir observando",
+    )
+    await _login(client)
+    text = (await client.get("/dashboard")).text
+    assert "En Espera" not in text
+    assert "Aun Mirando" not in text
+    # They're still visible in the full decision strip below the cards.
+    assert "Pendiente" in text and "Seguir observando" in text
+
+
 async def test_featured_card_shows_scouting_signals(client, dashboard_auth):
     seeded = await _seed()
     await Prospect.filter(id=seeded["ferrin"].id).update(
