@@ -32,16 +32,16 @@ aparecerán aquí.</p>
 {% endif %}
 
 <section class="stat-strip">
-  <div><strong>{{ totals.sessions }}</strong> partidos
+  <div><strong>{{ totals.sessions }}</strong> partido{{ "s" if totals.sessions != 1 }}
     {% if totals.active_sessions %}<span class="badge live">{{ totals.active_sessions }} en vivo</span>{% endif %}
   </div>
-  <div><strong>{{ totals.prospects }}</strong> jugadores
+  <div><strong>{{ totals.prospects }}</strong> jugador{{ "es" if totals.prospects != 1 }}
     {% if totals.temporary_prospects %}<span class="muted">({{ totals.temporary_prospects }} sin identificar)</span>{% endif %}
   </div>
-  <div><strong>{{ totals.observations }}</strong> observaciones
+  <div><strong>{{ totals.observations }}</strong> observación{{ "es" if totals.observations != 1 }}
     {% if totals.team_notes %}<span class="muted">({{ totals.team_notes }} de equipo)</span>{% endif %}
   </div>
-  <div><strong>{{ totals.rated_prospects }}</strong> valorados</div>
+  <div><strong>{{ totals.rated_prospects }}</strong> valorado{{ "s" if totals.rated_prospects != 1 }}</div>
 </section>
 
 <section>
