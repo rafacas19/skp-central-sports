@@ -1,0 +1,65 @@
+{# Filter controls shared by the players list and the decision board, so the two
+   pages can't drift apart. Every dropdown is built from values actually present
+   in the data — a filter never offers a dead end. #}
+
+{% macro position_filter(options, selected) %}
+<label>Posición
+  <select name="posicion">
+    <option value="">Todas</option>
+    {% for group in options %}
+    <option value="{{ group.category }}" {% if selected == group.category %}selected{% endif %}>
+      {{ group.category }} (toda la línea)
+    </option>
+    {% for role in group.roles %}
+    <option value="{{ role }}" {% if selected == role %}selected{% endif %}>&nbsp;&nbsp;{{ role }}</option>
+    {% endfor %}
+    {% endfor %}
+  </select>
+</label>
+{% endmacro %}
+
+{% macro age_filter(options, selected) %}
+<label>Edad
+  <select name="edad">
+    <option value="">Todas</option>
+    {% for bucket in options %}
+    <option value="{{ bucket.key }}" {% if selected == bucket.key %}selected{% endif %}>{{ bucket.label }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% endmacro %}
+
+{% macro team_filter(teams, selected) %}
+<label>Equipo
+  <select name="equipo">
+    <option value="">Todos</option>
+    {% for t in teams %}
+    <option value="{{ t }}" {% if selected == t %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% endmacro %}
+
+{% macro foot_filter(options, selected) %}
+<label>Pie
+  <select name="pie">
+    <option value="">Cualquiera</option>
+    {% for foot in options %}
+    <option value="{{ foot }}" {% if selected == foot %}selected{% endif %}>{{ foot | capitalize }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% endmacro %}
+
+{% macro nationality_filter(options, selected) %}
+{% if options %}
+<label>Nacionalidad
+  <select name="nacionalidad">
+    <option value="">Todas</option>
+    {% for n in options %}
+    <option value="{{ n }}" {% if selected == n %}selected{% endif %}>{{ n }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% endif %}
+{% endmacro %}

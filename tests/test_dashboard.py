@@ -914,3 +914,168 @@ async def test_photo_404_when_telegram_is_unreachable(client, dashboard_auth):
     finally:
         _set("telegram_bot_token", old)
         photos.clear_cache()
+
+
+# ── Filters and grouping ─────────────────────────────────────────────────
+async def _seed_squad() -> dict:
+    """Four players with full bios across positions, ages and feet."""
+    session = await Session.create(agent_chat_id=1, home_team="Cali", away_team="Pasto")
+    made = {}
+    for key, name, position, birth_year, foot, nationality, value, rating in (
+        ("gk", "Andrés Mesa", "Portero", 2004, "derecho", "Colombia", 80000, 3),
+        ("cb", "Luis Mina", "Defensa central", 2008, "izquierdo", "Colombia", 150000, 4),
+        ("lb", "Juan Caro", "lateral", 2010, "izquierdo", "Venezuela", None, 4),
+        ("st", "Kevin Salas", "Delantero centro", 2000, "derecho", "Colombia", 900000, 5),
+    ):
+        p = await Prospect.create(
+            agent_chat_id=1, name=name, normalized_name=name.lower(),
+            team="Cali", normalized_team="cali", position=position,
+            birth_year=birth_year, preferred_foot=foot, nationality=nationality,
+            market_value_usd=value, latest_rating=rating,
+        )
+        await Observation.create(
+            session=session, prospect=p, player_name=name,
+            raw_quote=f"Nota de {name}", rating=rating,
+        )
+        made[key] = p
+    return made
+
+
+async def test_players_filter_by_position_role_and_line(client, dashboard_auth):
+    await _seed_squad()
+    await _login(client)
+
+    # A specific role.
+    resp = await client.get("/dashboard/jugadores", params={"posicion": "Defensa central"})
+    assert "Luis Mina" in resp.text
+    assert "Juan Caro" not in resp.text and "Kevin Salas" not in resp.text
+
+    # A whole line — "lateral" has no side, but it is still a defender.
+    resp = await client.get("/dashboard/jugadores", params={"posicion": "Defensa"})
+    assert "Luis Mina" in resp.text and "Juan Caro" in resp.text
+    assert "Kevin Salas" not in resp.text
+
+    # The dropdown offers the line and the roles found under it.
+    assert "Defensa (toda la línea)" in resp.text
+    assert "Delantero centro" in resp.text
+
+
+async def test_players_filter_by_age_bucket(client, dashboard_auth):
+    await _seed_squad()
+    await _login(client)
+
+    resp = await client.get("/dashboard/jugadores", params={"edad": "sub17"})
+    assert "Juan Caro" in resp.text  # 2010
+    assert "Luis Mina" not in resp.text
+
+    # Brackets are inclusive the way football uses them: sub-20 contains sub-17.
+    resp = await client.get("/dashboard/jugadores", params={"edad": "sub20"})
+    assert "Juan Caro" in resp.text and "Luis Mina" in resp.text
+    assert "Kevin Salas" not in resp.text
+
+    resp = await client.get("/dashboard/jugadores", params={"edad": "mayores"})
+    assert "Kevin Salas" in resp.text and "Juan Caro" not in resp.text
+
+
+async def test_players_filter_by_foot_and_nationality(client, dashboard_auth):
+    await _seed_squad()
+    await _login(client)
+
+    resp = await client.get("/dashboard/jugadores", params={"pie": "izquierdo"})
+    assert "Luis Mina" in resp.text and "Juan Caro" in resp.text
+    assert "Kevin Salas" not in resp.text
+
+    resp = await client.get("/dashboard/jugadores", params={"nacionalidad": "Venezuela"})
+    assert "Juan Caro" in resp.text and "Luis Mina" not in resp.text
+
+
+async def test_players_filters_combine(client, dashboard_auth):
+    await _seed_squad()
+    await _login(client)
+    resp = await client.get(
+        "/dashboard/jugadores",
+        params={"posicion": "Defensa", "edad": "sub20", "pie": "izquierdo"},
+    )
+    assert "Luis Mina" in resp.text and "Juan Caro" in resp.text
+    assert "Kevin Salas" not in resp.text and "Andrés Mesa" not in resp.text
+
+
+async def test_players_sorting(client, dashboard_auth):
+    await _seed_squad()
+    await _login(client)
+
+    text = (await client.get("/dashboard/jugadores", params={"orden": "edad"})).text
+    assert text.index("Juan Caro") < text.index("Luis Mina") < text.index("Kevin Salas")
+
+    text = (await client.get("/dashboard/jugadores", params={"orden": "valor"})).text
+    assert text.index("Kevin Salas") < text.index("Luis Mina") < text.index("Andrés Mesa")
+
+    text = (await client.get("/dashboard/jugadores", params={"orden": "nombre"})).text
+    assert text.index("Andrés Mesa") < text.index("Juan Caro") < text.index("Kevin Salas")
+
+    # Default stays best-rated first.
+    text = (await client.get("/dashboard/jugadores")).text
+    assert text.index("Kevin Salas") < text.index("Andrés Mesa")
+
+
+async def test_players_unknown_age_excluded_from_brackets(client, dashboard_auth):
+    await _seed_squad()
+    await Prospect.create(
+        agent_chat_id=1, name="Sin Datos", normalized_name="sin datos", team="Cali",
+        normalized_team="cali", latest_rating=4,
+    )
+    await _login(client)
+    resp = await client.get("/dashboard/jugadores", params={"edad": "sub23"})
+    assert "Sin Datos" not in resp.text  # can't be claimed for a bracket
+    resp = await client.get("/dashboard/jugadores")
+    assert "Sin Datos" in resp.text
+
+
+async def test_players_list_shows_scouting_columns(client, dashboard_auth):
+    await _seed_squad()
+    await _login(client)
+    text = (await client.get("/dashboard/jugadores")).text
+    assert "DC" in text and "POR" in text  # position badges
+    assert "$900 mil" in text
+    assert "Izquierdo" in text
+
+
+async def test_decision_board_groups_by_position(client, dashboard_auth):
+    await _seed_squad()
+    await _login(client)
+    resp = await client.get("/dashboard/decisiones")
+    assert resp.status_code == 200
+    text = resp.text
+
+    # Within "Muy interesante" (rating 4) the two defenders sit under Defensa.
+    assert "Muy interesante" in text
+    assert text.index("A firmar") < text.index("Muy interesante")
+    # Position headings appear in pitch order within a tier.
+    assert "Defensa" in text and "Delantero" in text
+
+
+async def test_decision_board_filters(client, dashboard_auth):
+    await _seed_squad()
+    await _login(client)
+
+    resp = await client.get("/dashboard/decisiones", params={"posicion": "Defensa"})
+    assert "Luis Mina" in resp.text and "Juan Caro" in resp.text
+    assert "Kevin Salas" not in resp.text
+
+    resp = await client.get("/dashboard/decisiones", params={"edad": "sub17"})
+    assert "Juan Caro" in resp.text and "Kevin Salas" not in resp.text
+
+    resp = await client.get(
+        "/dashboard/decisiones", params={"posicion": "Portero", "edad": "sub17"}
+    )
+    assert "No hay jugadores que coincidan" in resp.text
+
+
+async def test_filters_only_offer_values_present_in_the_data(client, dashboard_auth):
+    await _seed_squad()
+    await _login(client)
+    text = (await client.get("/dashboard/jugadores")).text
+    # Nobody is ambidextrous or a Pivote, so neither is offered.
+    assert 'value="ambidiestro"' not in text
+    assert ">&nbsp;&nbsp;Pivote<" not in text
+    assert 'value="Venezuela"' in text

@@ -231,6 +231,11 @@ async def players_page(
     equipo: str | None = None,
     decision: str | None = None,
     valoracion_min: str | None = None,
+    posicion: str | None = None,
+    edad: str | None = None,
+    pie: str | None = None,
+    nacionalidad: str | None = None,
+    orden: str | None = None,
 ):
     try:
         rating_min = float(valoracion_min) if valoracion_min else None
@@ -241,23 +246,47 @@ async def players_page(
         team=equipo or None,
         decision=decision or None,
         rating_min=rating_min,
+        position=posicion or None,
+        age_bucket=edad or None,
+        foot=pie or None,
+        nationality=nacionalidad or None,
+        sort=orden or None,
     )
     filters = {
         "q": q or "",
         "equipo": equipo or "",
         "decision": decision or "",
         "valoracion_min": valoracion_min if rating_min is not None else "",
+        "posicion": posicion or "",
+        "edad": edad or "",
+        "pie": pie or "",
+        "nacionalidad": nacionalidad or "",
+        "orden": orden or "",
     }
-    filters["any"] = any(filters.values())
+    # `orden` alone is a sort, not a filter — it must not light up "quitar filtros".
+    filters["any"] = any(v for k, v in filters.items() if k != "orden")
     return _render(request, "players.html", {**data, "filters": filters})
 
 
 @router.get(
     "/decisiones", response_class=HTMLResponse, dependencies=[Depends(auth.require_dashboard)]
 )
-async def decisions_page(request: Request):
-    groups = await queries.decision_board()
-    return _render(request, "decisions.html", {"groups": groups})
+async def decisions_page(
+    request: Request,
+    posicion: str | None = None,
+    edad: str | None = None,
+    equipo: str | None = None,
+):
+    data = await queries.decision_board(
+        position=posicion or None, age_bucket=edad or None, team=equipo or None
+    )
+    filters = {
+        "posicion": posicion or "",
+        "edad": edad or "",
+        "equipo": equipo or "",
+    }
+    filters["any"] = any(filters.values())
+    return _render(request, "decisions.html", {**data, "filters": filters})
 
 
 @router.get(
