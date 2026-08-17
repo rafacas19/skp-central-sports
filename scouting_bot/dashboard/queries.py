@@ -18,8 +18,10 @@ from ..models import (
     Observation,
     Prospect,
     Session,
+    current_age,
     decision_for_rating,
 )
+from ..positions import position_abbr, position_category
 from ..taxonomy import normalize_name
 
 # Canonical display order for the decision strip, best first.
@@ -74,13 +76,22 @@ def _ordered_labels(present: set[str]) -> list[str]:
 
 
 def _player_row(p: Prospect) -> dict:
-    """The list/card representation of a prospect (observations prefetched)."""
+    """The list/card representation of a prospect (observations prefetched).
+
+    `position` stays the scout's own words; `position_abbr`/`position_category`
+    are the derived taxonomy used for badges, grouping and filtering."""
     return {
         "id": p.id,
         "name": display_name(p),
         "is_temporary": p.is_temporary or not p.name,
         "team": p.team,
         "position": p.position,
+        "position_abbr": position_abbr(p.position),
+        "position_category": position_category(p.position),
+        "age": current_age(p.birth_year, p.age),
+        "foot": p.preferred_foot,
+        "nationality": p.nationality,
+        "market_value_usd": p.market_value_usd,
         "rating": p.latest_rating,
         "decision": prospect_decision(p),
         "matches": len({o.session_id for o in p.observations}),
@@ -311,8 +322,20 @@ async def player_detail(prospect_id: int) -> dict | None:
             "is_temporary": p.is_temporary or not p.name,
             "team": p.team,
             "position": p.position,
-            "age": p.age,
+            "position_abbr": position_abbr(p.position),
+            "position_category": position_category(p.position),
+            "age": current_age(p.birth_year, p.age),
+            "birth_year": p.birth_year,
             "height_cm": p.height_cm,
+            "weight_kg": p.weight_kg,
+            "foot": p.preferred_foot,
+            "shirt_number": p.shirt_number,
+            "nationality": p.nationality,
+            "origin_club": p.origin_club,
+            "agent_name": p.agent_name,
+            "agent_phone": p.agent_phone,
+            "market_value_usd": p.market_value_usd,
+            "contract_year": p.contract_year,
             "rating": p.latest_rating,
             "decision": prospect_decision(p),
             "notes": p.notes,

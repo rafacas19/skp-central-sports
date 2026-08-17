@@ -65,10 +65,24 @@ def _minuto(value: int | None) -> str:
     return f"{value}'" if value is not None else "—"
 
 
+def _valor(value: int | None) -> str:
+    """A USD estimate, abbreviated the way market values are quoted in Spanish
+    («$1,2 M», «$250 mil»). Decimal comma, as in es-CO."""
+    if not value:
+        return "—"
+    if value >= 1_000_000:
+        millions = f"{value / 1_000_000:.1f}".rstrip("0").rstrip(".")
+        return f"${millions.replace('.', ',')} M"
+    if value >= 1_000:
+        return f"${value // 1000} mil"
+    return f"${value}"
+
+
 templates.env.filters["fecha"] = _fecha
 templates.env.filters["hora"] = _hora
 templates.env.filters["valoracion"] = _valoracion
 templates.env.filters["minuto"] = _minuto
+templates.env.filters["valor"] = _valor
 
 
 def _render(

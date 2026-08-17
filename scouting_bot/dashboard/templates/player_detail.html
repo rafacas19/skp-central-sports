@@ -12,9 +12,29 @@
 
 <section class="meta">
   {% if player.team %}<div><span class="meta-label">Equipo</span>{{ player.team }}</div>{% endif %}
-  {% if player.position %}<div><span class="meta-label">Posición</span>{{ player.position }}</div>{% endif %}
-  {% if player.age %}<div><span class="meta-label">Edad</span>{{ player.age }} años</div>{% endif %}
+  {% if player.position %}
+  <div><span class="meta-label">Posición</span>{{ player.position }}
+    {% if player.position_abbr %}<span class="pos-badge">{{ player.position_abbr }}</span>{% endif %}
+  </div>
+  {% endif %}
+  {% if player.shirt_number is not none %}<div><span class="meta-label">Dorsal</span>{{ player.shirt_number }}</div>{% endif %}
+  {% if player.age %}
+  <div><span class="meta-label">Edad</span>{{ player.age }} años{% if player.birth_year %} <span class="muted">({{ player.birth_year }})</span>{% endif %}</div>
+  {% elif player.birth_year %}
+  <div><span class="meta-label">Nacimiento</span>{{ player.birth_year }}</div>
+  {% endif %}
+  {% if player.foot %}<div><span class="meta-label">Pie</span>{{ player.foot | capitalize }}</div>{% endif %}
   {% if player.height_cm %}<div><span class="meta-label">Estatura</span>{{ player.height_cm }} cm</div>{% endif %}
+  {% if player.weight_kg %}<div><span class="meta-label">Peso</span>{{ player.weight_kg }} kg</div>{% endif %}
+  {% if player.nationality %}<div><span class="meta-label">Nacionalidad</span>{{ player.nationality }}</div>{% endif %}
+  {% if player.origin_club %}<div><span class="meta-label">Procedencia</span>{{ player.origin_club }}</div>{% endif %}
+  {% if player.market_value_usd %}<div><span class="meta-label">Valor de mercado</span>{{ player.market_value_usd | valor }}</div>{% endif %}
+  {% if player.contract_year %}<div><span class="meta-label">Contrato hasta</span>{{ player.contract_year }}</div>{% endif %}
+  {% if player.agent_name %}
+  <div><span class="meta-label">Agente</span>{{ player.agent_name }}{% if player.agent_phone %} <span class="muted">· {{ player.agent_phone }}</span>{% endif %}</div>
+  {% elif player.agent_phone %}
+  <div><span class="meta-label">Contacto</span>{{ player.agent_phone }}</div>
+  {% endif %}
   <div><span class="meta-label">Partidos</span>{{ player.matches }}</div>
   <div><span class="meta-label">Observaciones</span>{{ player.observations }}</div>
 </section>

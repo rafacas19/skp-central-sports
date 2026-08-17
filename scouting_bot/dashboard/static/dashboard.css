@@ -119,6 +119,21 @@ h2 {
 }
 .badge.live { background: #e7f4ec; color: var(--green-600); border: 1px solid #b7dcc4; }
 
+/* Position abbreviation (POR, DFC, MC…) — a compact, uppercase tag next to the
+   scout's own wording for the position. */
+.pos-badge {
+  display: inline-block;
+  background: var(--green-800);
+  color: #fff;
+  border-radius: 4px;
+  padding: 0 6px;
+  margin-left: 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+}
+
 /* ── Tables ── */
 table {
   width: 100%;
