@@ -307,9 +307,123 @@ h1 .chip { vertical-align: middle; font-size: 0.85rem; }
 }
 .login-card button:hover { background: var(--green-900); }
 
+/* ── Page header with an action on the right ── */
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.page-head h1 { margin-bottom: 0; }
+
+/* ── Buttons & callouts ── */
+.button-link {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--green-900);
+  background: #fff;
+}
+.button-link:hover { background: var(--green-100); }
+.button-link.primary {
+  background: var(--green-800);
+  border-color: var(--green-800);
+  color: #fff;
+}
+.button-link.primary:hover { background: var(--green-900); }
+.button-link.danger { color: var(--danger); border-color: #e8c8c5; }
+.button-link.danger:hover { background: #fdf2f1; }
+
+.callout {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--green-600);
+  border-radius: 6px;
+  background: #fff;
+  padding: 10px 14px;
+  margin: 14px 0;
+}
+.callout.warn { border-left-color: #d9a800; background: #fffbe9; }
+.callout p { margin: 4px 0; }
+
+/* ── Forms ── */
+.form fieldset {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px 16px 16px;
+  margin: 0 0 16px;
+}
+.form legend {
+  color: var(--green-800);
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0 6px;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 16px;
+}
+.form label { display: block; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+.form label.wide { margin-top: 12px; }
+.form input, .form select, .form textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--text);
+  background: #fff;
+}
+.form input:focus, .form select:focus, .form textarea:focus {
+  outline: 2px solid var(--green-600);
+  border-color: var(--green-600);
+}
+.form textarea { resize: vertical; }
+.form .hint { display: block; margin-top: 3px; font-size: 0.75rem; font-weight: 400; }
+.field-error { display: block; margin-top: 3px; font-size: 0.8rem; color: var(--danger); font-weight: 600; }
+.form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.form-actions button.primary {
+  background: var(--green-800);
+  color: #fff;
+  border: 1px solid var(--green-800);
+  border-radius: 6px;
+  padding: 8px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.form-actions button.primary:hover { background: var(--green-900); }
+.form-actions button.primary.danger { background: var(--danger); border-color: var(--danger); }
+.form-actions button.primary.danger:hover { background: #8f1e17; }
+
+.merge-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.merge-list li { margin-bottom: 8px; }
+.merge-list a {
+  display: block;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  text-decoration: none;
+  color: var(--text);
+}
+.merge-list a:hover { border-color: var(--green-600); background: var(--green-100); }
+
 /* ── Phone ── */
 @media (max-width: 640px) {
   .topbar { padding: 8px 12px; }
   main { padding: 12px 10px 30px; }
   th, td { padding: 6px 8px; font-size: 0.85rem; }
+  .form-grid { grid-template-columns: 1fr; }
 }

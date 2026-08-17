@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Fusionar {{ keep.name }} — Panel de Scouting{% endblock %}
+{% macro player_line(p) %}
+  <strong>{{ p.name }}</strong>
+  <span class="muted">
+    {{ p.team or "sin equipo" }}{% if p.position %} · {{ p.position }}{% endif %}
+    · {{ p.matches }} partido{{ "s" if p.matches != 1 }}
+    · {{ p.observations }} observación{{ "es" if p.observations != 1 }}
+    {% if p.rating is not none %} · {{ p.rating | valoracion }} / 5{% endif %}
+  </span>
+{% endmacro %}
+{% block content %}
+<p><a class="back" href="/dashboard/jugadores/{{ keep.id }}">← {{ keep.name }}</a></p>
+<h1>Fusionar perfiles</h1>
+
+<p>Se conserva <strong>{{ keep.name }}</strong>. El otro perfil desaparece: sus
+observaciones pasan a este jugador y se completan los datos que aquí falten.
+<strong>No se puede deshacer.</strong></p>
+
+<section class="meta">
+  <div><span class="meta-label">Se conserva</span>{{ player_line(keep) }}</div>
+</section>
+
+{% if selected %}
+<form method="post" action="/dashboard/jugadores/{{ keep.id }}/fusionar" class="form">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <input type="hidden" name="con" value="{{ selected.id }}">
+  <div class="callout warn">
+    <p>Vas a fusionar con:</p>
+    <p>{{ player_line(selected) }}</p>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="primary danger">Sí, fusionar</button>
+    <a class="button-link" href="/dashboard/jugadores/{{ keep.id }}/fusionar">Elegir otro</a>
+    <a class="button-link" href="/dashboard/jugadores/{{ keep.id }}">Cancelar</a>
+  </div>
+</form>
+{% else %}
+<section>
+  <h2>¿Con quién se fusiona?</h2>
+  {% if candidates %}
+  <p class="muted">Ordenados por parecido de nombre y equipo.</p>
+  <ul class="merge-list">
+    {% for c in candidates %}
+    <li>
+      <a href="/dashboard/jugadores/{{ keep.id }}/fusionar?con={{ c.id }}">{{ player_line(c) }}</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No hay otros jugadores registrados con los que fusionar.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

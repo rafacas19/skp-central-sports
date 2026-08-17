@@ -17,6 +17,7 @@
     {% endfor %}
   </nav>
   <form class="logout" method="post" action="/dashboard/logout">
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
     <button type="submit">Salir</button>
   </form>
 </header>

@@ -24,6 +24,30 @@ from .models import (
 from .taxonomy import name_matches, normalize_identity, normalize_name
 
 
+# Optional bio a merge copies from the dropped prospect onto the survivor when
+# the survivor has none. Identity columns (name/team and their normalized keys)
+# are deliberately absent: the survivor's identity is the one being kept.
+MERGEABLE_BIO_FIELDS = (
+    "position",
+    "age",
+    "birth_year",
+    "height_cm",
+    "weight_kg",
+    "preferred_foot",
+    "shirt_number",
+    "nationality",
+    "origin_club",
+    "agent_name",
+    "agent_phone",
+    "market_value_usd",
+    "contract_year",
+    "photo_file_id",
+    "notes",
+    "latest_rating",
+    "decision_status",
+)
+
+
 def _now() -> datetime:
     """Timezone-aware UTC now (Tortoise DatetimeField stores tz-aware values)."""
     return datetime.now(timezone.utc)
@@ -222,9 +246,24 @@ class Storage:
         await Prospect.filter(id=prospect_id).update(**fields)
 
     async def merge_prospects(self, keep_id: int, drop_id: int) -> None:
-        """Repoint the dropped prospect's observations onto the kept one, delete it."""
+        """Repoint the dropped prospect's observations onto the kept one, delete it.
+
+        Bio the survivor is missing is backfilled from the record being dropped,
+        so merging two halves of one player keeps every detail either half had.
+        Only blanks are filled — the survivor's own values always win.
+        """
         if keep_id == drop_id:
             return
+        keep = await Prospect.filter(id=keep_id).first()
+        drop = await Prospect.filter(id=drop_id).first()
+        if keep is not None and drop is not None:
+            backfill = {
+                f: getattr(drop, f)
+                for f in MERGEABLE_BIO_FIELDS
+                if getattr(keep, f) is None and getattr(drop, f) is not None
+            }
+            if backfill:
+                await Prospect.filter(id=keep_id).update(**backfill)
         await Observation.filter(prospect_id=drop_id).update(prospect_id=keep_id)
         await Prospect.filter(id=drop_id).delete()
 

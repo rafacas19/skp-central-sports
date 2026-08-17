@@ -22,7 +22,7 @@ from ..models import (
     decision_for_rating,
 )
 from ..positions import position_abbr, position_category
-from ..taxonomy import normalize_name
+from ..taxonomy import name_matches, normalize_name
 
 # Canonical display order for the decision strip, best first.
 DECISION_ORDER = [RATING_DECISIONS[r] for r in (5, 4, 3, 2, 1)]
@@ -344,6 +344,60 @@ async def player_detail(prospect_id: int) -> dict | None:
         },
         "matches": matches,
         "rating_history": history,
+    }
+
+
+async def identity_collision(
+    prospect: Prospect, normalized_name: str, normalized_team: str
+) -> Prospect | None:
+    """A *different* prospect of the same scout already keyed to this identity.
+
+    Renaming into an existing player must not create a second record for one
+    person — the caller sends the client to the merge flow instead."""
+    if not normalized_name:
+        return None
+    return await (
+        Prospect.filter(
+            agent_chat_id=prospect.agent_chat_id,
+            normalized_name=normalized_name,
+            normalized_team=normalized_team,
+        )
+        .exclude(id=prospect.id)
+        .prefetch_related("observations")  # display_name reads them
+        .first()
+    )
+
+
+async def get_prospect(prospect_id: int) -> Prospect | None:
+    """A prospect ready for `display_name` (observations prefetched)."""
+    return await (
+        Prospect.filter(id=prospect_id).prefetch_related("observations").first()
+    )
+
+
+async def merge_candidates(prospect_id: int) -> dict | None:
+    """The prospect plus every other one it could be merged with.
+
+    Ordered by how likely they are the same person: fuzzy name match first, then
+    same team, then the rest — the scout still confirms explicitly."""
+    keep = await Prospect.get_or_none(id=prospect_id)
+    if keep is None:
+        return None
+    await keep.fetch_related("observations")
+    others = await (
+        Prospect.filter(agent_chat_id=keep.agent_chat_id)
+        .exclude(id=keep.id)
+        .prefetch_related("observations")
+    )
+
+    def rank(p: Prospect) -> tuple:
+        same_name = bool(keep.name and p.name and name_matches(keep.name, p.name))
+        same_team = bool(keep.normalized_team) and p.normalized_team == keep.normalized_team
+        return (not same_name, not same_team, display_name(p).lower())
+
+    return {
+        "keep": _player_row(keep),
+        "candidates": [_player_row(p) for p in sorted(others, key=rank)],
     }
 
 

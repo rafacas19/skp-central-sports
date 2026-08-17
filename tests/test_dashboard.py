@@ -499,3 +499,286 @@ async def test_decision_board_empty(client, dashboard_auth):
     resp = await client.get("/dashboard/decisiones")
     assert resp.status_code == 200
     assert "Todavía no hay jugadores registrados" in resp.text
+
+
+# ── Player editing ───────────────────────────────────────────────────────
+def _csrf(html: str) -> str:
+    """Pull the CSRF token out of a rendered form (the browser's job)."""
+    marker = f'name="{auth.CSRF_FIELD}" value="'
+    start = html.index(marker) + len(marker)
+    return html[start : html.index('"', start)]
+
+
+async def _edit_form(client: httpx.AsyncClient, pid: int) -> tuple[str, dict]:
+    """Open the edit page and return (csrf, the form's current values)."""
+    resp = await client.get(f"/dashboard/jugadores/{pid}/editar")
+    assert resp.status_code == 200
+    return _csrf(resp.text), {}
+
+
+async def test_edit_requires_auth(client, dashboard_auth):
+    seeded = await _seed()
+    resp = await client.get(f"/dashboard/jugadores/{seeded['ferrin'].id}/editar")
+    assert resp.status_code == 303
+
+
+async def test_edit_page_prefills_current_values(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    resp = await client.get(f"/dashboard/jugadores/{seeded['ferrin'].id}/editar")
+    assert resp.status_code == 200
+    text = resp.text
+    assert 'value="Jordan Ferrin"' in text
+    assert 'value="Millonarios"' in text
+    # The stored free-text position is offered as an option, so opening and
+    # saving the form never rewrites what the bot captured.
+    assert '<option value="Delantero" selected>' in text
+    assert "Delantero centro" in text  # canonical roles are offered too
+    assert "Pie" in text and "Valor de mercado" in text
+
+
+async def test_edit_saves_every_bio_field(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ferrin"].id
+    csrf, _ = await _edit_form(client, pid)
+
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/editar",
+        data={
+            auth.CSRF_FIELD: csrf,
+            "nombre": "Jordan Ferrin",
+            "equipo": "Millonarios",
+            "posicion": "Delantero centro",
+            "dorsal": "9",
+            "anio_nacimiento": "2008",
+            "estatura": "187",
+            "peso": "78",
+            "pie": "izquierdo",
+            "nacionalidad": "Colombia",
+            "procedencia": "Academia Compensar",
+            "valor": "$250.000",
+            "contrato_hasta": "2028",
+            "agente": "Carlos Gómez",
+            "telefono_agente": "300 555 1234",
+            "valoracion": "4.5",
+            "decision": "",
+            "notas": "Zurdo, buen remate de primera.",
+        },
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/dashboard/jugadores/{pid}"
+
+    p = await Prospect.get(id=pid)
+    assert p.position == "Delantero centro"
+    assert p.shirt_number == 9
+    assert p.birth_year == 2008
+    assert p.height_cm == 187 and p.weight_kg == 78
+    assert p.preferred_foot == "izquierdo"
+    assert p.nationality == "Colombia"
+    assert p.origin_club == "Academia Compensar"
+    assert p.market_value_usd == 250000  # «$250.000» is read as a number
+    assert p.contract_year == 2028
+    assert p.agent_name == "Carlos Gómez" and p.agent_phone == "300 555 1234"
+    assert p.latest_rating == 4.5
+    assert p.decision_status is None  # "automática" ⇒ derived from the rating
+    assert p.notes == "Zurdo, buen remate de primera."
+
+    # And the profile page shows them.
+    resp = await client.get(f"/dashboard/jugadores/{pid}")
+    text = resp.text
+    assert "Muy interesante" in text  # 4.5 → auto-decision
+    assert "$250 mil" in text
+    assert "Izquierdo" in text and "Colombia" in text
+    assert "Academia Compensar" in text and "Carlos Gómez" in text
+    assert "18 años" in text or "17 años" in text  # derived from the birth year
+
+
+async def test_edit_explicit_decision_overrides_rating(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ocampo"].id  # rating 2 ⇒ would derive "A seguir"
+    csrf, _ = await _edit_form(client, pid)
+
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/editar",
+        data={
+            auth.CSRF_FIELD: csrf, "nombre": "Ocampo", "equipo": "América",
+            "valoracion": "2", "decision": "Interesante",
+        },
+    )
+    assert resp.status_code == 303
+    p = await Prospect.get(id=pid)
+    assert p.decision_status == "Interesante"
+    resp = await client.get(f"/dashboard/jugadores/{pid}")
+    assert "Interesante" in resp.text
+
+
+async def test_edit_rejects_bad_values_without_saving(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ferrin"].id
+    csrf, _ = await _edit_form(client, pid)
+
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/editar",
+        data={
+            auth.CSRF_FIELD: csrf, "nombre": "Jordan Ferrin",
+            "anio_nacimiento": "108", "estatura": "1870", "dorsal": "0",
+            "valoracion": "9",
+        },
+    )
+    assert resp.status_code == 400
+    text = resp.text
+    assert "no se guardó nada" in text.lower()
+    assert "El año de nacimiento" in text and "La estatura" in text
+
+    p = await Prospect.get(id=pid)
+    assert p.birth_year is None and p.height_cm is None
+    assert p.name == "Jordan Ferrin"  # untouched
+
+
+async def test_edit_requires_csrf(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ferrin"].id
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/editar",
+        data={auth.CSRF_FIELD: "0" * 20, "nombre": "Hackeado"},
+    )
+    assert resp.status_code == 400
+    assert (await Prospect.get(id=pid)).name == "Jordan Ferrin"
+
+
+async def test_naming_a_temporary_profile_makes_it_permanent(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["temp"].id
+    csrf, _ = await _edit_form(client, pid)
+
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/editar",
+        data={auth.CSRF_FIELD: csrf, "nombre": "Édison Restrepo", "equipo": "Valle"},
+    )
+    assert resp.status_code == 303
+    p = await Prospect.get(id=pid)
+    assert p.name == "Édison Restrepo"
+    assert p.is_temporary is False
+    # Re-keyed exactly the way the bot would key it (accent-insensitive).
+    assert p.normalized_name == "edison restrepo"
+    assert p.normalized_team == "valle"
+    # The observations it already had come with it.
+    resp = await client.get(f"/dashboard/jugadores/{pid}")
+    assert "Édison Restrepo" in resp.text and "Rápido en el 1vs1" in resp.text
+
+
+async def test_saving_a_temporary_profile_unnamed_keeps_its_key(client, dashboard_auth):
+    """Blanking a name must not destroy the synthetic key the bot looks numbers
+    up by — the profile just stays unidentified."""
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["temp"].id
+    before = await Prospect.get(id=pid)
+    csrf, _ = await _edit_form(client, pid)
+
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/editar",
+        data={auth.CSRF_FIELD: csrf, "nombre": "", "equipo": "Valle", "estatura": "175"},
+    )
+    assert resp.status_code == 303
+    p = await Prospect.get(id=pid)
+    assert p.normalized_name == before.normalized_name
+    assert p.is_temporary is True
+    assert p.height_cm == 175  # the rest of the edit still landed
+
+
+async def test_rename_into_existing_player_offers_merge(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ocampo"].id
+    csrf, _ = await _edit_form(client, pid)
+
+    # Rename Ocampo into Ferrin's exact identity (same name and team).
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/editar",
+        data={
+            auth.CSRF_FIELD: csrf, "nombre": "Jordan Ferrin", "equipo": "Millonarios",
+        },
+    )
+    assert resp.status_code == 409
+    assert "Ya existe un jugador" in resp.text
+    assert f"/dashboard/jugadores/{pid}/fusionar?con={seeded['ferrin'].id}" in resp.text
+    # Nothing was written: one person must not end up as two records.
+    assert (await Prospect.get(id=pid)).name == "Ocampo"
+
+
+async def test_edit_not_found(client, dashboard_auth):
+    await _login(client)
+    resp = await client.get("/dashboard/jugadores/9999/editar")
+    assert resp.status_code == 404
+
+
+# ── Merging profiles ─────────────────────────────────────────────────────
+async def test_merge_page_ranks_candidates(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    resp = await client.get(f"/dashboard/jugadores/{seeded['ferrin'].id}/fusionar")
+    assert resp.status_code == 200
+    text = resp.text
+    assert "Se conserva" in text
+    assert "Ocampo" in text and "Sin identificar (dorsal 7)" in text
+    assert "No se puede deshacer" in text
+
+
+async def test_merge_moves_observations_and_backfills_bio(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    keep, drop = seeded["ferrin"], seeded["temp"]
+    # The profile being dropped knows something the survivor doesn't.
+    await Prospect.filter(id=drop.id).update(height_cm=181, preferred_foot="derecho")
+
+    resp = await client.get(f"/dashboard/jugadores/{keep.id}/fusionar?con={drop.id}")
+    assert resp.status_code == 200
+    assert "Vas a fusionar con" in resp.text
+    csrf = _csrf(resp.text)
+
+    resp = await client.post(
+        f"/dashboard/jugadores/{keep.id}/fusionar",
+        data={auth.CSRF_FIELD: csrf, "con": str(drop.id)},
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/dashboard/jugadores/{keep.id}"
+
+    assert await Prospect.filter(id=drop.id).first() is None
+    survivor = await Prospect.get(id=keep.id)
+    assert survivor.name == "Jordan Ferrin"
+    assert survivor.height_cm == 181  # backfilled from the dropped profile
+    assert survivor.preferred_foot == "derecho"
+    assert survivor.latest_rating == 5  # the survivor's own value is never clobbered
+    # The dropped profile's observation now belongs to the survivor.
+    assert await Observation.filter(prospect_id=keep.id).count() == 3
+
+
+async def test_merge_requires_csrf(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    resp = await client.post(
+        f"/dashboard/jugadores/{seeded['ferrin'].id}/fusionar",
+        data={auth.CSRF_FIELD: "0" * 20, "con": str(seeded['temp'].id)},
+    )
+    assert resp.status_code == 400
+    assert await Prospect.filter(id=seeded["temp"].id).first() is not None
+
+
+async def test_merge_with_missing_profile_is_rejected(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ferrin"].id
+    resp = await client.get(f"/dashboard/jugadores/{pid}/fusionar")
+    csrf = _csrf(resp.text)
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/fusionar",
+        data={auth.CSRF_FIELD: csrf, "con": "9999"},
+    )
+    assert resp.status_code == 404
+    assert await Prospect.filter(id=pid).first() is not None

@@ -24,6 +24,12 @@ from ..config import settings
 COOKIE_NAME = "dashboard_session"
 SESSION_TTL_S = 30 * 24 * 3600  # 30 days
 
+# CSRF tokens are the same HMAC construction under a different purpose string
+# (so a session cookie can never be replayed as a form token) and are short-lived
+# — long enough to fill in a player form, short enough to be worth little.
+CSRF_FIELD = "csrf"
+CSRF_TTL_S = 12 * 3600
+
 # Rate limit: at most MAX_ATTEMPTS failed logins per IP per WINDOW_S.
 MAX_ATTEMPTS = 10
 WINDOW_S = 15 * 60
@@ -34,18 +40,12 @@ def _secret() -> bytes:
     return (settings.dashboard_secret or settings.dashboard_password).encode()
 
 
-def _sign(expires_ts: int) -> str:
-    mac = hmac.new(_secret(), f"dashboard-v1:{expires_ts}".encode(), hashlib.sha256)
+def _sign(expires_ts: int, purpose: str = "dashboard-v1") -> str:
+    mac = hmac.new(_secret(), f"{purpose}:{expires_ts}".encode(), hashlib.sha256)
     return f"{expires_ts}.{mac.hexdigest()}"
 
 
-def make_session_token(now: float | None = None) -> str:
-    if now is None:
-        now = time.time()
-    return _sign(int(now + SESSION_TTL_S))
-
-
-def verify_session_token(token: str | None, now: float | None = None) -> bool:
+def _verify(token: str | None, purpose: str, now: float | None) -> bool:
     if now is None:
         now = time.time()
     if not token or "." not in token:
@@ -57,7 +57,27 @@ def verify_session_token(token: str | None, now: float | None = None) -> bool:
         return False
     if expires_ts < now:
         return False
-    return hmac.compare_digest(_sign(expires_ts), token)
+    return hmac.compare_digest(_sign(expires_ts, purpose), token)
+
+
+def make_session_token(now: float | None = None) -> str:
+    if now is None:
+        now = time.time()
+    return _sign(int(now + SESSION_TTL_S))
+
+
+def verify_session_token(token: str | None, now: float | None = None) -> bool:
+    return _verify(token, "dashboard-v1", now)
+
+
+def make_csrf_token(now: float | None = None) -> str:
+    if now is None:
+        now = time.time()
+    return _sign(int(now + CSRF_TTL_S), "dashboard-csrf-v1")
+
+
+def verify_csrf_token(token: str | None, now: float | None = None) -> bool:
+    return _verify(token, "dashboard-csrf-v1", now)
 
 
 def check_password(candidate: str) -> bool:
@@ -93,6 +113,17 @@ def client_ip(request: Request) -> str:
 def cookie_secure() -> bool:
     # Prod (webhook mode) is always https; local dev is plain http.
     return settings.use_webhook
+
+
+def require_csrf(token: str | None) -> None:
+    """Guard for every state-changing POST. The session cookie is SameSite=Lax,
+    so a cross-site form post already arrives without credentials; this is the
+    second lock, and it also expires stale open tabs."""
+    if not verify_csrf_token(token):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Formulario caducado. Vuelve a cargar la página.",
+        )
 
 
 async def require_dashboard(request: Request) -> None:

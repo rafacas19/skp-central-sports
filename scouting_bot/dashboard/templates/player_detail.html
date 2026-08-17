@@ -2,12 +2,15 @@
 {% block title %}{{ player.name }} — Panel de Scouting{% endblock %}
 {% block content %}
 <p><a class="back" href="/dashboard/jugadores">← Jugadores</a></p>
-<h1>{{ player.name }}
-  {% if player.rating is not none %}<span class="chip">{{ player.rating | valoracion }} / 5</span>{% endif %}
-  {% if player.decision %}<span class="chip">{{ player.decision }}</span>{% endif %}
-</h1>
+<div class="page-head">
+  <h1>{{ player.name }}
+    {% if player.rating is not none %}<span class="chip">{{ player.rating | valoracion }} / 5</span>{% endif %}
+    {% if player.decision %}<span class="chip">{{ player.decision }}</span>{% endif %}
+  </h1>
+  <a class="button-link primary" href="/dashboard/jugadores/{{ player.id }}/editar">Editar</a>
+</div>
 {% if player.is_temporary %}
-<p class="muted">Perfil sin identificar — ponle nombre desde el bot para completarlo.</p>
+<p class="muted">Perfil sin identificar — ponle nombre para completarlo.</p>
 {% endif %}
 
 <section class="meta">
