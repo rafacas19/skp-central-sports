@@ -11,7 +11,16 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -20,7 +29,7 @@ from ..config import settings
 from ..models import FEET, Prospect
 from ..positions import ROLES
 from ..storage import Storage
-from . import auth, forms, queries, summaries
+from . import auth, forms, photos, queries, summaries
 
 router = APIRouter(prefix="/dashboard", include_in_schema=False)
 
@@ -266,6 +275,30 @@ async def player_page(request: Request, prospect_id: int, background_tasks: Back
         )
     summary = await summaries.get_or_refresh(prospect_id, background_tasks)
     return _render(request, "player_detail.html", {**data, "summary": summary})
+
+
+@router.get(
+    "/foto/{prospect_id}", dependencies=[Depends(auth.require_dashboard)]
+)
+async def player_photo(prospect_id: int):
+    """Proxy the player's Telegram photo.
+
+    Telegram needs the bot token to serve the file, so the browser can never
+    fetch it directly. A missing or unreachable photo is a 404, which the card
+    already handles by showing initials."""
+    p = await Prospect.get_or_none(id=prospect_id)
+    if p is None or not p.photo_file_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    payload = await photos.fetch(p.photo_file_id)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    content, content_type = payload
+    return Response(
+        content,
+        media_type=content_type,
+        # The file_id is immutable, so the browser can hold on to it.
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 # ── Editing a player ─────────────────────────────────────────────────────

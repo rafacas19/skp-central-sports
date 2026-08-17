@@ -1,43 +1,77 @@
 {% extends "base.html" %}
 {% block title %}Resumen — Panel de Scouting{% endblock %}
 {% block content %}
-<h1>Resumen</h1>
+<h1>Jugadores destacados</h1>
 
-<section class="cards">
-  <div class="card">
-    <div class="card-value">{{ totals.sessions }}</div>
-    <div class="card-label">Partidos
-      {% if totals.active_sessions %}<span class="badge live">{{ totals.active_sessions }} en vivo</span>{% endif %}
-    </div>
-  </div>
-  <div class="card">
-    <div class="card-value">{{ totals.prospects }}</div>
-    <div class="card-label">Jugadores
-      {% if totals.temporary_prospects %}<span class="muted">({{ totals.temporary_prospects }} sin identificar)</span>{% endif %}
-    </div>
-  </div>
-  <div class="card">
-    <div class="card-value">{{ totals.observations }}</div>
-    <div class="card-label">Observaciones
-      {% if totals.team_notes %}<span class="muted">({{ totals.team_notes }} de equipo)</span>{% endif %}
-    </div>
-  </div>
-  <div class="card">
-    <div class="card-value">{{ totals.rated_prospects }}</div>
-    <div class="card-label">Jugadores valorados</div>
+{% if featured %}
+{% for group in featured %}
+<section class="tier">
+  <h2 class="tier-head">
+    {{ group.label }} <span class="tier-count">{{ group.count }}</span>
+  </h2>
+  <div class="player-cards">
+    {% for p in group.players %}
+    <a class="player-card" href="/dashboard/jugadores/{{ p.id }}">
+      <div class="avatar">
+        {% if p.has_photo %}
+        <img src="/dashboard/foto/{{ p.id }}" alt="" loading="lazy">
+        {% else %}
+        <span>{{ p.initials }}</span>
+        {% endif %}
+      </div>
+      <div class="player-card-body">
+        <div class="player-card-name">{{ p.name }}</div>
+        <div class="player-card-meta">
+          {% if p.position_abbr %}<span class="pos-badge">{{ p.position_abbr }}</span>{% endif %}
+          {% if p.age %}<span>{{ p.age }} años</span>{% endif %}
+          {% if p.team %}<span>{{ p.team }}</span>{% endif %}
+        </div>
+        <div class="player-card-meta">
+          {% if p.foot %}<span>Pie {{ p.foot }}</span>{% endif %}
+          {% if p.market_value_usd %}<span>{{ p.market_value_usd | valor }}</span>{% endif %}
+          <span>{{ p.matches }} partido{{ "s" if p.matches != 1 }}</span>
+        </div>
+      </div>
+      <div class="player-card-score">
+        <div class="score">{{ p.rating | valoracion }}<span class="score-max">/5</span></div>
+        {% if p.trend == "sube" %}<span class="trend up" title="Mejor que el partido anterior">▲</span>
+        {% elif p.trend == "baja" %}<span class="trend down" title="Peor que el partido anterior">▼</span>
+        {% elif p.trend == "igual" %}<span class="trend flat" title="Igual que el partido anterior">=</span>{% endif %}
+        {% if p.single_match %}<span class="badge single">solo 1 partido</span>{% endif %}
+      </div>
+    </a>
+    {% endfor %}
   </div>
 </section>
+{% endfor %}
+{% else %}
+<p class="muted">Todavía no hay jugadores destacados. Los que valores con 3 o más
+aparecerán aquí.</p>
+{% endif %}
 
 {% if decisions %}
 <section>
-  <h2>Decisiones</h2>
+  <h2>Todas las decisiones</h2>
   <div class="chips">
     {% for d in decisions %}
-    <span class="chip decision-{{ loop.index }}">{{ d.label }} <strong>{{ d.count }}</strong></span>
+    <a class="chip decision-{{ loop.index }}" href="/dashboard/decisiones">{{ d.label }} <strong>{{ d.count }}</strong></a>
     {% endfor %}
   </div>
 </section>
 {% endif %}
+
+<section class="stat-strip">
+  <div><strong>{{ totals.sessions }}</strong> partidos
+    {% if totals.active_sessions %}<span class="badge live">{{ totals.active_sessions }} en vivo</span>{% endif %}
+  </div>
+  <div><strong>{{ totals.prospects }}</strong> jugadores
+    {% if totals.temporary_prospects %}<span class="muted">({{ totals.temporary_prospects }} sin identificar)</span>{% endif %}
+  </div>
+  <div><strong>{{ totals.observations }}</strong> observaciones
+    {% if totals.team_notes %}<span class="muted">({{ totals.team_notes }} de equipo)</span>{% endif %}
+  </div>
+  <div><strong>{{ totals.rated_prospects }}</strong> valorados</div>
+</section>
 
 <section>
   <h2>Últimos partidos</h2>
@@ -61,30 +95,6 @@
   </table>
   {% else %}
   <p class="muted">Todavía no hay partidos registrados.</p>
-  {% endif %}
-</section>
-
-<section>
-  <h2>Mejor valorados</h2>
-  {% if top_players %}
-  <table>
-    <thead>
-      <tr><th>Jugador</th><th>Equipo</th><th>Valoración</th><th>Decisión</th><th>Partidos</th></tr>
-    </thead>
-    <tbody>
-      {% for p in top_players %}
-      <tr>
-        <td><a href="/dashboard/jugadores/{{ p.id }}">{{ p.name }}</a></td>
-        <td>{{ p.team or "—" }}</td>
-        <td class="num rating">{{ p.rating | valoracion }} / 5</td>
-        <td>{% if p.decision %}<span class="chip small">{{ p.decision }}</span>{% else %}—{% endif %}</td>
-        <td class="num">{{ p.matches }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="muted">Todavía no hay jugadores valorados.</p>
   {% endif %}
 </section>
 {% endblock %}

@@ -187,7 +187,7 @@ async def test_overview_empty_db(client, dashboard_auth):
     resp = await client.get("/dashboard")
     assert resp.status_code == 200
     assert "Todavía no hay partidos registrados" in resp.text
-    assert "Todavía no hay jugadores valorados" in resp.text
+    assert "Todavía no hay jugadores destacados" in resp.text
 
 
 async def test_overview_with_data(client, dashboard_auth):
@@ -782,3 +782,135 @@ async def test_merge_with_missing_profile_is_rejected(client, dashboard_auth):
     )
     assert resp.status_code == 404
     assert await Prospect.filter(id=pid).first() is not None
+
+
+# ── Home screen: featured players ────────────────────────────────────────
+async def test_overview_leads_with_featured_players(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    resp = await client.get("/dashboard")
+    assert resp.status_code == 200
+    text = resp.text
+
+    # The headline is the players to act on, not the counters.
+    assert text.index("Jugadores destacados") < text.index("Últimos partidos")
+    assert text.index("Jordan Ferrin") < text.index("stat-strip")
+
+    # Ferrin (5) is featured; Ocampo (2 → "A seguir") is not card-worthy.
+    ferrin_link = f'/dashboard/jugadores/{seeded["ferrin"].id}"'
+    assert ferrin_link in text
+    assert f'class="player-card" href="/dashboard/jugadores/{seeded["ocampo"].id}"' not in text
+    # …but every decision still shows as a count.
+    assert "A seguir" in text
+
+
+async def test_featured_tiers_are_ordered_best_first(client, dashboard_auth):
+    await _seed()
+    # A second player one tier down.
+    await Prospect.create(
+        agent_chat_id=1, name="Luis Mina", normalized_name="luis mina",
+        team="Millonarios", normalized_team="millonarios", latest_rating=4,
+    )
+    await _login(client)
+    text = (await client.get("/dashboard")).text
+    assert text.index("A firmar") < text.index("Muy interesante")
+    assert text.index("Jordan Ferrin") < text.index("Luis Mina")
+
+
+async def test_featured_card_shows_scouting_signals(client, dashboard_auth):
+    seeded = await _seed()
+    await Prospect.filter(id=seeded["ferrin"].id).update(
+        position="Delantero centro", birth_year=2008, preferred_foot="izquierdo",
+        market_value_usd=250000,
+    )
+    await _login(client)
+    text = (await client.get("/dashboard")).text
+
+    assert "DC" in text  # position badge from the taxonomy
+    assert "Pie izquierdo" in text
+    assert "$250 mil" in text
+    assert "JF" in text  # initials placeholder (no photo stored)
+    # Ferrin was rated 5 then 4 across two matches → the trend points down.
+    assert "trend down" in text
+    assert "solo 1 partido" not in text  # he has two
+
+
+async def test_single_match_players_are_flagged(client, dashboard_auth):
+    await _seed()
+    solo = await Prospect.create(
+        agent_chat_id=1, name="Kevin Salas", normalized_name="kevin salas",
+        team="Valle", normalized_team="valle", latest_rating=5,
+    )
+    session = await Session.create(agent_chat_id=1, home_team="X", away_team="Y")
+    await Observation.create(
+        session=session, prospect=solo, player_name="Kevin Salas",
+        raw_quote="Definición limpia", rating=5,
+    )
+    await _login(client)
+    text = (await client.get("/dashboard")).text
+    assert "solo 1 partido" in text
+
+
+async def test_overview_without_featured_players(client, dashboard_auth):
+    await Prospect.create(
+        agent_chat_id=1, name="Bajo", normalized_name="bajo", latest_rating=1,
+    )
+    await _login(client)
+    text = (await client.get("/dashboard")).text
+    assert "Todavía no hay jugadores destacados" in text
+
+
+# ── Player photo proxy ───────────────────────────────────────────────────
+async def test_photo_requires_auth(client, dashboard_auth):
+    seeded = await _seed()
+    resp = await client.get(f"/dashboard/foto/{seeded['ferrin'].id}")
+    assert resp.status_code == 303
+
+
+async def test_photo_404_without_a_stored_file(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    resp = await client.get(f"/dashboard/foto/{seeded['ferrin'].id}")
+    assert resp.status_code == 404
+    resp = await client.get("/dashboard/foto/9999")
+    assert resp.status_code == 404
+
+
+async def test_photo_served_from_cache_without_calling_telegram(client, dashboard_auth):
+    """A cached file_id is served straight from memory — no token, no network."""
+    from scouting_bot.dashboard import photos
+
+    seeded = await _seed()
+    await Prospect.filter(id=seeded["ferrin"].id).update(photo_file_id="ph_l")
+    photos.clear_cache()
+    photos._cache["ph_l"] = (b"\xff\xd8fakejpeg", "image/jpeg")
+    try:
+        await _login(client)
+        resp = await client.get(f"/dashboard/foto/{seeded['ferrin'].id}")
+        assert resp.status_code == 200
+        assert resp.content == b"\xff\xd8fakejpeg"
+        assert resp.headers["content-type"].startswith("image/jpeg")
+    finally:
+        photos.clear_cache()
+
+
+async def test_photo_404_when_telegram_is_unreachable(client, dashboard_auth):
+    """An unavailable photo must not break the page — the card falls back to
+    initials, so the proxy just 404s."""
+    from scouting_bot.dashboard import photos
+
+    seeded = await _seed()
+    await Prospect.filter(id=seeded["ferrin"].id).update(photo_file_id="ph_missing")
+    photos.clear_cache()
+    old = _set("telegram_bot_token", "")  # no token ⇒ nothing to fetch with
+    try:
+        await _login(client)
+        resp = await client.get(f"/dashboard/foto/{seeded['ferrin'].id}")
+        assert resp.status_code == 404
+        # The home screen still renders, with the photo slot pointing at us.
+        resp = await client.get("/dashboard")
+        assert resp.status_code == 200
+        assert f'/dashboard/foto/{seeded["ferrin"].id}' in resp.text
+    finally:
+        _set("telegram_bot_token", old)
+        photos.clear_cache()

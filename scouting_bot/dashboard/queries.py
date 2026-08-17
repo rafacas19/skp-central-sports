@@ -112,6 +112,65 @@ def _rows_sorted(rows: list[dict]) -> list[dict]:
     )
 
 
+# Decisions worth putting on the home screen, best first. Everything below these
+# is a count and a link, not a card — the landing page is for players the scout
+# should act on.
+FEATURED_DECISIONS = [RATING_DECISIONS[r] for r in (5, 4, 3)]
+
+
+async def _rating_trend(p: Prospect, sessions: dict[int, Session]) -> str | None:
+    """Whether the player's rating went up, down or held since the match before.
+
+    Ratings are averaged per match (a scout may rate the same player twice in
+    one game) and compared across the two most recent rated matches. None when
+    there is nothing to compare against."""
+    per_match: dict[int, list[float]] = {}
+    for o in p.observations:
+        if o.rating is not None:
+            per_match.setdefault(o.session_id, []).append(o.rating)
+    if len(per_match) < 2:
+        return None
+
+    def when(session_id: int):
+        s = sessions.get(session_id)
+        return (s.match_date or s.created_at) if s else None
+
+    ordered = sorted(
+        (sid for sid in per_match if when(sid) is not None), key=when, reverse=True
+    )
+    if len(ordered) < 2:
+        return None
+    latest = sum(per_match[ordered[0]]) / len(per_match[ordered[0]])
+    previous = sum(per_match[ordered[1]]) / len(per_match[ordered[1]])
+    if latest > previous:
+        return "sube"
+    if latest < previous:
+        return "baja"
+    return "igual"
+
+
+def _featured_card(p: Prospect, row: dict, trend: str | None) -> dict:
+    """A player card for the home screen: identity, the headline rating, and the
+    two signals that say how much to trust it — the trend since the previous
+    match, and whether it rests on a single viewing."""
+    return {
+        **row,
+        "initials": _initials(row["name"], p),
+        "has_photo": bool(p.photo_file_id),
+        "trend": trend,
+        "single_match": row["matches"] <= 1,
+    }
+
+
+def _initials(name: str, p: Prospect) -> str:
+    """Up to two initials for the photo placeholder; a dorsal when unnamed."""
+    if p.name:
+        parts = [w for w in name.split() if w]
+        return "".join(w[0] for w in parts[:2]).upper()
+    number = _first_number(p)
+    return f"#{number}" if number is not None else "?"
+
+
 async def overview() -> dict:
     """Everything the overview page shows, in one shot."""
     sessions = await Session.all().prefetch_related("observations").order_by("-created_at")
@@ -145,18 +204,23 @@ async def overview() -> dict:
         for s in sessions[:5]
     ]
 
-    top = sorted(rated, key=lambda p: (-p.latest_rating, p.name or "~"))[:10]
-    top_players = [
-        {
-            "id": p.id,
-            "name": display_name(p),
-            "team": p.team,
-            "rating": p.latest_rating,
-            "decision": prospect_decision(p),
-            "matches": len({o.session_id for o in p.observations}),
-        }
-        for p in top
-    ]
+    # Featured tiers — the point of the home screen. Players the scout should
+    # act on come first as cards, grouped by decision and best-rated within each
+    # group; the rest stay as counts in the decision strip.
+    by_session = {s.id: s for s in sessions}
+    featured = []
+    for label in FEATURED_DECISIONS:
+        members = [p for p in prospects if prospect_decision(p) == label]
+        if not members:
+            continue
+        rows = {p.id: _player_row(p) for p in members}
+        cards = [
+            _featured_card(p, rows[p.id], await _rating_trend(p, by_session))
+            for p in members
+        ]
+        featured.append(
+            {"label": label, "players": _rows_sorted(cards), "count": len(cards)}
+        )
 
     return {
         "totals": {
@@ -169,8 +233,9 @@ async def overview() -> dict:
             "rated_prospects": len(rated),
         },
         "decisions": decisions,
+        "featured": featured,
+        "featured_total": sum(g["count"] for g in featured),
         "recent_sessions": recent,
-        "top_players": top_players,
     }
 
 
