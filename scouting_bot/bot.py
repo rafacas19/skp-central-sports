@@ -146,7 +146,7 @@ async def cmd_newmatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(
         f"🆕 Partido iniciado: *{home} vs {away}*"
         + (f"\n_{label}_" if label else "")
-        + "\n\nCuando arranque el partido, envía /primer_tiempo para poner el "
+        + "\n\nCuando arranque el partido, envía `/primer_tiempo` para poner el "
         "cronómetro en marcha (así cada observación queda marcada con el minuto).\n"
         "Ya puedes enviar observaciones por texto o voz, p. ej. "
         "`América, #7, extremo, muy rápido en el 1vs1`. "
@@ -228,7 +228,7 @@ async def _half_notice_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(
             job.chat_id,
             "⏸️ *Primer tiempo* — minuto 45.\n"
-            "Cuando empiece el segundo tiempo, usa /segundo_tiempo.",
+            "Cuando empiece el segundo tiempo, usa `/segundo_tiempo`.",
             parse_mode="Markdown",
         )
     else:
