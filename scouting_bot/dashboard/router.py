@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..config import settings
-from ..models import FEET, Prospect
+from ..models import CONTACT_NONE, CONTACT_STATUSES, FEET, Prospect
 from ..positions import ROLES
 from ..storage import Storage
 from . import auth, forms, photos, queries, summaries
@@ -48,10 +48,15 @@ NAV = [
 ]
 
 
-def _fecha(value: datetime | None) -> str:
-    """dd/mm/yyyy in the scout's timezone; empty for None."""
+def _fecha(value: datetime | date | None) -> str:
+    """dd/mm/yyyy in the scout's timezone; empty for None.
+
+    Plain dates (a contact day, not an instant) carry no timezone and are
+    formatted as they are — shifting them would move the day."""
     if value is None:
         return ""
+    if not isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y")
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(_TZ).strftime("%d/%m/%Y")
@@ -235,6 +240,7 @@ async def players_page(
     edad: str | None = None,
     pie: str | None = None,
     nacionalidad: str | None = None,
+    contacto: str | None = None,
     orden: str | None = None,
 ):
     try:
@@ -250,6 +256,7 @@ async def players_page(
         age_bucket=edad or None,
         foot=pie or None,
         nationality=nacionalidad or None,
+        contact=contacto or None,
         sort=orden or None,
     )
     filters = {
@@ -261,11 +268,88 @@ async def players_page(
         "edad": edad or "",
         "pie": pie or "",
         "nacionalidad": nacionalidad or "",
+        "contacto": contacto or "",
         "orden": orden or "",
     }
     # `orden` alone is a sort, not a filter — it must not light up "quitar filtros".
     filters["any"] = any(v for k, v in filters.items() if k != "orden")
     return _render(request, "players.html", {**data, "filters": filters})
+
+
+# ── Creating a player from scratch ───────────────────────────────────────
+# Declared before /jugadores/{prospect_id}: routes match in declaration order,
+# and "nuevo" would otherwise be read as a (non-numeric) prospect id.
+_NEW_PLAYER_FIELDS = (
+    "nombre", "equipo", "posicion", "dorsal", "anio_nacimiento", "edad",
+    "estatura", "peso", "pie", "nacionalidad", "procedencia", "valor",
+    "contrato_hasta", "agente", "telefono_agente", "valoracion", "decision",
+    "notas", "estado_contacto", "fecha_contacto", "notas_contacto",
+)
+
+
+def _new_context(values: dict[str, str]) -> dict:
+    """Everything the create form needs: the values typed so far (empty on a
+    first visit) and the same option lists the edit form offers."""
+    return {
+        "values": {f: values.get(f, "") for f in _NEW_PLAYER_FIELDS},
+        "positions": [r.role for r in ROLES],
+        "feet": FEET,
+        "ratings": list(forms.RATING_CHOICES),
+        "decisions": forms.DECISION_LABELS,
+        "contact_statuses": CONTACT_STATUSES,
+    }
+
+
+@router.get(
+    "/jugadores/nuevo",
+    response_class=HTMLResponse,
+    dependencies=[Depends(auth.require_dashboard)],
+)
+async def player_new_page(request: Request):
+    return _render(
+        request, "player_new.html",
+        {**_new_context({}), "errors": {}, "collision": None},
+    )
+
+
+@router.post("/jugadores/nuevo", dependencies=[Depends(auth.require_dashboard)])
+async def player_new_submit(request: Request):
+    submitted = {k: str(v) for k, v in (await request.form()).items()}
+    auth.require_csrf(submitted.get(auth.CSRF_FIELD))
+
+    updates, errors = forms.parse_player_form(submitted)
+    # Unlike editing, a nameless profile makes no sense here: an unidentified
+    # player is something the bot creates mid-match from a shirt number, not
+    # something anyone would type into a form.
+    if not updates.get("name"):
+        errors["nombre"] = "El nombre es obligatorio."
+    context = {**_new_context(submitted), "collision": None}
+    if errors:
+        return _render(
+            request, "player_new.html", {**context, "errors": errors},
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    forms.apply_identity(updates)
+    chat_id = await queries.scout_chat_id()
+    existing = await queries.identity_taken(
+        chat_id, updates["normalized_name"], updates.get("normalized_team", "")
+    )
+    if existing is not None:
+        return _render(
+            request, "player_new.html",
+            {
+                **context,
+                "errors": {},
+                "collision": {"id": existing.id, "name": queries.display_name(existing)},
+            },
+            status_code=status.HTTP_409_CONFLICT,
+        )
+
+    created = await Prospect.create(agent_chat_id=chat_id, **updates)
+    return RedirectResponse(
+        f"/dashboard/jugadores/{created.id}", status_code=status.HTTP_303_SEE_OTHER
+    )
 
 
 @router.get(
@@ -356,6 +440,10 @@ def _form_values(p: Prospect) -> dict[str, str]:
         "valoracion": f"{p.latest_rating:g}" if p.latest_rating is not None else "",
         "decision": p.decision_status or "",
         "notas": p.notes or "",
+        "estado_contacto": p.contact_status or "",
+        # The date input speaks ISO; `_fecha` is for display only.
+        "fecha_contacto": p.last_contact_at.isoformat() if p.last_contact_at else "",
+        "notas_contacto": p.contact_notes or "",
     }
 
 
@@ -378,6 +466,7 @@ def _edit_context(p: Prospect, values: dict[str, str]) -> dict:
         "feet": FEET,
         "ratings": ratings,
         "decisions": forms.DECISION_LABELS,
+        "contact_statuses": CONTACT_STATUSES,
     }
 
 
@@ -442,6 +531,47 @@ async def player_edit_submit(request: Request, prospect_id: int):
             )
 
     await Storage().update_prospect(prospect_id, **updates)
+    return RedirectResponse(
+        f"/dashboard/jugadores/{prospect_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+# ── Contact follow-up ────────────────────────────────────────────────────
+@router.post(
+    "/jugadores/{prospect_id}/contacto", dependencies=[Depends(auth.require_dashboard)]
+)
+async def player_contact_submit(
+    request: Request,
+    prospect_id: int,
+    estado: str = Form(...),
+    csrf: str = Form(default=""),
+):
+    """One-click status change from the player profile.
+
+    Moving a player forward in the funnel stamps today as the last contact — the
+    click *is* the record that a conversation happened. Moving back to "Sin
+    contactar" clears both, which is the only way to undo a misclick without
+    opening the edit form."""
+    auth.require_csrf(csrf)
+    if estado not in CONTACT_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Estado de contacto no válido."
+        )
+    p = await Prospect.get_or_none(id=prospect_id)
+    if p is None:
+        return _render(
+            request, "not_found.html",
+            {"message": "Ese jugador no existe.", "back": "/dashboard/jugadores"},
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    if estado == CONTACT_NONE:
+        await Prospect.filter(id=prospect_id).update(
+            contact_status=None, last_contact_at=None
+        )
+    else:
+        await Prospect.filter(id=prospect_id).update(
+            contact_status=estado, last_contact_at=datetime.now(_TZ).date()
+        )
     return RedirectResponse(
         f"/dashboard/jugadores/{prospect_id}", status_code=status.HTTP_303_SEE_OTHER
     )

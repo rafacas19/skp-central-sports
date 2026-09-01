@@ -1,0 +1,152 @@
+{#
+  The player bio form, shared by "Editar jugador" and "Nuevo jugador".
+
+  Both screens write the same columns through the same validator
+  (forms.parse_player_form), so the fields live here once and each page supplies
+  only its own chrome (title, action, buttons).
+#}
+{% macro field_error(errors, field) %}{% if errors.get(field) %}<span class="field-error">{{ errors[field] }}</span>{% endif %}{% endmacro %}
+
+{% macro player_fields(values, errors, positions, feet, ratings, decisions, contact_statuses, name_hint) %}
+  <fieldset>
+    <legend>Identidad</legend>
+    <div class="form-grid">
+      <label>Nombre
+        <input type="text" name="nombre" value="{{ values.nombre }}" maxlength="120" autofocus>
+        {{ field_error(errors, "nombre") }}
+        {% if name_hint %}<span class="hint">{{ name_hint }}</span>{% endif %}
+      </label>
+      <label>Equipo
+        <input type="text" name="equipo" value="{{ values.equipo }}" maxlength="120">
+        {{ field_error(errors, "equipo") }}
+      </label>
+      <label>Posición
+        <select name="posicion">
+          <option value="">—</option>
+          {% for role in positions %}
+          <option value="{{ role }}" {% if values.posicion == role %}selected{% endif %}>{{ role }}</option>
+          {% endfor %}
+        </select>
+        {{ field_error(errors, "posicion") }}
+      </label>
+      <label>Dorsal
+        <input type="number" name="dorsal" value="{{ values.dorsal }}" min="1" max="99">
+        {{ field_error(errors, "dorsal") }}
+      </label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Perfil</legend>
+    <div class="form-grid">
+      <label>Año de nacimiento
+        <input type="number" name="anio_nacimiento" value="{{ values.anio_nacimiento }}" min="1950" max="2030" placeholder="2008">
+        {{ field_error(errors, "anio_nacimiento") }}
+        <span class="hint">Si lo pones, la edad se calcula sola.</span>
+      </label>
+      <label>Edad
+        <input type="number" name="edad" value="{{ values.edad }}" min="10" max="60">
+        {{ field_error(errors, "edad") }}
+        <span class="hint">Solo si no sabes el año.</span>
+      </label>
+      <label>Pie
+        <select name="pie">
+          <option value="">—</option>
+          {% for foot in feet %}
+          <option value="{{ foot }}" {% if values.pie == foot %}selected{% endif %}>{{ foot | capitalize }}</option>
+          {% endfor %}
+        </select>
+        {{ field_error(errors, "pie") }}
+      </label>
+      <label>Nacionalidad
+        <input type="text" name="nacionalidad" value="{{ values.nacionalidad }}" maxlength="60">
+        {{ field_error(errors, "nacionalidad") }}
+      </label>
+      <label>Estatura (cm)
+        <input type="number" name="estatura" value="{{ values.estatura }}" min="100" max="250">
+        {{ field_error(errors, "estatura") }}
+      </label>
+      <label>Peso (kg)
+        <input type="number" name="peso" value="{{ values.peso }}" min="30" max="150">
+        {{ field_error(errors, "peso") }}
+      </label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Contratación</legend>
+    <div class="form-grid">
+      <label>Procedencia
+        <input type="text" name="procedencia" value="{{ values.procedencia }}" maxlength="120" placeholder="Club o academia">
+        {{ field_error(errors, "procedencia") }}
+      </label>
+      <label>Valor de mercado (USD)
+        <input type="text" name="valor" value="{{ values.valor }}" inputmode="numeric" placeholder="250000">
+        {{ field_error(errors, "valor") }}
+      </label>
+      <label>Contrato hasta
+        <input type="number" name="contrato_hasta" value="{{ values.contrato_hasta }}" min="2000" max="2050">
+        {{ field_error(errors, "contrato_hasta") }}
+      </label>
+      <label>Agente
+        <input type="text" name="agente" value="{{ values.agente }}" maxlength="120">
+        {{ field_error(errors, "agente") }}
+      </label>
+      <label>Teléfono del agente
+        <input type="text" name="telefono_agente" value="{{ values.telefono_agente }}" maxlength="40">
+        {{ field_error(errors, "telefono_agente") }}
+      </label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Valoración</legend>
+    <div class="form-grid">
+      <label>Valoración
+        <select name="valoracion">
+          <option value="">Sin valorar</option>
+          {% for r in ratings %}
+          <option value="{{ r }}" {% if values.valoracion == r %}selected{% endif %}>{{ r }} / 5</option>
+          {% endfor %}
+        </select>
+        {{ field_error(errors, "valoracion") }}
+      </label>
+      <label>Decisión
+        <select name="decision">
+          <option value="">Automática (según la valoración)</option>
+          {% for d in decisions %}
+          <option value="{{ d }}" {% if values.decision == d %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+        {{ field_error(errors, "decision") }}
+      </label>
+    </div>
+    <label class="wide">Notas
+      <textarea name="notas" rows="4" maxlength="4000">{{ values.notas }}</textarea>
+      {{ field_error(errors, "notas") }}
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Seguimiento</legend>
+    <div class="form-grid">
+      <label>Estado de contacto
+        <select name="estado_contacto">
+          {% for c in contact_statuses %}
+          <option value="{{ c }}" {% if values.estado_contacto == c or (not values.estado_contacto and loop.first) %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+        {{ field_error(errors, "estado_contacto") }}
+      </label>
+      <label>Último contacto
+        <input type="date" name="fecha_contacto" value="{{ values.fecha_contacto }}">
+        {{ field_error(errors, "fecha_contacto") }}
+        <span class="hint">El día de la última conversación.</span>
+      </label>
+    </div>
+    <label class="wide">Notas de contacto
+      <textarea name="notas_contacto" rows="3" maxlength="4000" placeholder="Qué se habló, con quién, próximos pasos">{{ values.notas_contacto }}</textarea>
+      {{ field_error(errors, "notas_contacto") }}
+    </label>
+  </fieldset>
+{% endmacro %}

@@ -395,6 +395,16 @@ h1 .chip { vertical-align: middle; font-size: 0.85rem; }
 .stat-strip strong { color: var(--text); font-size: 1.05rem; }
 a.chip { text-decoration: none; }
 
+/* One-click contact-status buttons on the player profile: chips that post. */
+.contact .chips form { margin: 0; }
+.chip-button {
+  font: inherit; font-size: 0.8rem; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 14px;
+  background: #fff; color: var(--green-800); padding: 3px 11px;
+}
+.chip-button:hover { background: var(--green-100); }
+.contact .hint { display: block; margin-top: 8px; font-size: 0.75rem; }
+
 /* ── Page header with an action on the right ── */
 .page-head {
   display: flex;

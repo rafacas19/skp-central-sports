@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from .categories import split_category
 from .models import (
     SESSION_ACTIVE,
     SESSION_ENDED,
@@ -28,6 +29,7 @@ from .taxonomy import name_matches, normalize_identity, normalize_name
 # the survivor has none. Identity columns (name/team and their normalized keys)
 # are deliberately absent: the survivor's identity is the one being kept.
 MERGEABLE_BIO_FIELDS = (
+    "category",
     "position",
     "age",
     "birth_year",
@@ -65,10 +67,18 @@ class Storage:
         label: str | None,
         **metadata,
     ) -> Session:
+        # "Santa Fe U18" is a club and a category in one string: store the club
+        # as the team (so it matches what prospects are keyed on) and the
+        # category beside it. `metadata["category"]`, typed by the scout on
+        # /nuevo, is a different field and is passed through untouched.
+        home, home_category = split_category(home_team)
+        away, away_category = split_category(away_team)
         session = await Session.create(
             agent_chat_id=agent_chat_id,
-            home_team=home_team,
-            away_team=away_team,
+            home_team=home,
+            away_team=away,
+            home_team_category=home_category,
+            away_team_category=away_category,
             label=label,
             state=SESSION_ACTIVE,
             **metadata,  # scout_name / competition / category / location / match_date
@@ -157,7 +167,12 @@ class Storage:
         Different shirt numbers across matches still resolve to one prospect, and
         a lightly-embellished name ("Castro B.") keys to the same prospect as the
         bare surname ("Castro") — see taxonomy.normalize_identity.
+
+        The team is split into club + category first ("Santa Fe U18" → "Santa Fe"
+        / "Sub-18") and the lookup runs on the club, so both spellings resolve to
+        the same player instead of creating two records.
         """
+        team, category = split_category(team)
         norm_name = normalize_identity(name)
         norm_team = normalize_name(team) if team else ""
         prospect = await Prospect.filter(
@@ -181,6 +196,9 @@ class Storage:
             if team and not prospect.team:
                 prospect.team, prospect.normalized_team = team, norm_team
                 changed = True
+            if category and not prospect.category:
+                prospect.category = category
+                changed = True
             if position and not prospect.position:
                 prospect.position = position
                 changed = True
@@ -193,6 +211,7 @@ class Storage:
             normalized_name=norm_name,
             team=team,
             normalized_team=norm_team,
+            category=category,
             position=position,
             is_temporary=not name,  # a blank name ⇒ temporary
         )
@@ -206,6 +225,7 @@ class Storage:
         Keyed within the match by (team, number) so repeated number-only notes in
         the same match reuse one record. Marked temporary until the scout names it.
         """
+        team, category = split_category(team)
         label = team or "?"
         marker = f"#{number}" if number is not None else "?"
         synthetic = f"__temp__:{session_id}:{normalize_name(label)}:{marker}"
@@ -220,6 +240,7 @@ class Storage:
             normalized_name=synthetic,
             team=team,
             normalized_team=normalize_name(team) if team else "",
+            category=category,
             is_temporary=True,
         )
 

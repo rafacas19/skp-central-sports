@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from ..models import FEET, RATING_DECISIONS
+from ..categories import split_category
+from ..models import CONTACT_NONE, CONTACT_STATUSES, FEET, RATING_DECISIONS
 from ..positions import ROLES
 from ..taxonomy import normalize_identity, normalize_name
 
@@ -26,6 +27,7 @@ TEXT_FIELDS: dict[str, tuple[str, int]] = {
     "agente": ("agent_name", 120),
     "telefono_agente": ("agent_phone", 40),
     "notas": ("notes", 4000),
+    "notas_contacto": ("contact_notes", 4000),
 }
 
 # Editable whole-number fields: form name → (model field, min, max, label).
@@ -136,7 +138,39 @@ def parse_player_form(
     else:
         updates["decision_status"] = decision or None
 
+    # Contact follow-up. "Sin contactar" is the absence of a status, so it is
+    # stored as NULL — the column then means "a conversation happened", and the
+    # list/profile render the label.
+    contact = (form.get("estado_contacto") or "").strip()
+    if contact and contact not in CONTACT_STATUSES:
+        errors["estado_contacto"] = "Elige un estado de la lista."
+    else:
+        updates["contact_status"] = None if contact in ("", CONTACT_NONE) else contact
+
+    updates["last_contact_at"], date_error = _parse_contact_date(
+        form.get("fecha_contacto")
+    )
+    if date_error:
+        errors["fecha_contacto"] = date_error
+
     return updates, errors
+
+
+def _parse_contact_date(raw: str | None) -> tuple[date | None, str | None]:
+    """The date input's `YYYY-MM-DD` (what every browser submits), or an error.
+
+    A future date is rejected: the field records when a conversation happened,
+    not when one is planned."""
+    value = (raw or "").strip()
+    if not value:
+        return None, None
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return None, "Usa una fecha válida (AAAA-MM-DD)."
+    if parsed > date.today():
+        return None, "La fecha de contacto no puede ser futura."
+    return parsed, None
 
 
 def apply_identity(updates: dict) -> dict:
@@ -145,6 +179,12 @@ def apply_identity(updates: dict) -> dict:
     Uses the same normalization the bot keys prospects on, so a player renamed
     here collapses onto exactly the record the bot would have reached, and naming
     an unidentified profile clears its temporary flag.
+
+    A team typed with its category ("Santa Fe U18") is split the same way the bot
+    splits it, so the form and the capture path agree on what the club is. The
+    category is only written when the typed name carries one — a club typed
+    without it ("Santa Fe") leaves an already-stored category alone rather than
+    clearing it, since the form has no field to re-enter it with.
 
     Blanking an existing name is ignored on purpose: a temporary profile's
     normalized name is a synthetic per-match key that the bot looks numbers up
@@ -158,5 +198,9 @@ def apply_identity(updates: dict) -> dict:
     else:
         updates.pop("name", None)
     if "team" in updates:
-        updates["normalized_team"] = normalize_name(updates["team"] or "")
+        club, category = split_category(updates["team"])
+        updates["team"] = club
+        updates["normalized_team"] = normalize_name(club or "")
+        if category:
+            updates["category"] = category
     return updates

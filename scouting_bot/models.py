@@ -52,6 +52,27 @@ RATING_DECISIONS = {
 }
 
 
+# Contact follow-up ("CRM") statuses, in funnel order. A player with no status
+# has not been contacted yet, so NULL reads as CONTACT_NONE everywhere and no
+# existing row needs a value. `CONTACT_DISCARDED` is the dead end *after* talking
+# to someone — the scouting `decision_status` is a separate axis: a player can be
+# "A firmar" on the pitch and "Descartado" in the conversation.
+CONTACT_NONE = "Sin contactar"
+CONTACT_REACHED = "Contactado"
+CONTACT_TALKING = "En conversación"
+CONTACT_MEETING = "Reunión agendada"
+CONTACT_AGREED = "Acuerdo"
+CONTACT_DISCARDED = "Descartado"
+CONTACT_STATUSES = (
+    CONTACT_NONE,
+    CONTACT_REACHED,
+    CONTACT_TALKING,
+    CONTACT_MEETING,
+    CONTACT_AGREED,
+    CONTACT_DISCARDED,
+)
+
+
 # Preferred foot — the three values every scouting product uses.
 FOOT_LEFT = "izquierdo"
 FOOT_RIGHT = "derecho"
@@ -99,8 +120,13 @@ class Session(Model):
     # Optional match metadata (parsed from `/nuevo … | campo=valor`).
     scout_name = fields.TextField(null=True)
     competition = fields.TextField(null=True)
-    category = fields.TextField(null=True)
+    category = fields.TextField(null=True)  # typed by the scout on /nuevo
     location = fields.TextField(null=True)
+    # Categories DERIVED from the team names ("Santa Fe U18" → "Sub-18"), one per
+    # side. Kept apart from `category` above so a derived value never overwrites
+    # what the scout typed — see categories.split_category.
+    home_team_category = fields.TextField(null=True)
+    away_team_category = fields.TextField(null=True)
     match_date = fields.DatetimeField(null=True)
     # Match clock. Each half's wall-clock start is stamped when the scout sends
     # /primer_tiempo or /segundo_tiempo; the current minute is derived from these
@@ -145,8 +171,9 @@ class Prospect(Model):
     agent_chat_id = fields.BigIntField()
     name = fields.TextField()  # may be "" for a temporary / number-only profile
     normalized_name = fields.TextField()  # taxonomy.normalize_name(name)
-    team = fields.TextField(null=True)
+    team = fields.TextField(null=True)  # the club, with any category split off
     normalized_team = fields.TextField(null=True)
+    category = fields.TextField(null=True)  # derived from the team name, may be null
     position = fields.CharField(max_length=80, null=True)
     age = fields.IntField(null=True)
     height_cm = fields.IntField(null=True)
@@ -165,6 +192,13 @@ class Prospect(Model):
     contract_year = fields.IntField(null=True)  # contrato hasta
     latest_rating = fields.FloatField(null=True)  # manual, 1–5 (decimals allowed)
     decision_status = fields.CharField(max_length=24, null=True)  # DECISION_STATUSES
+    # Contact follow-up. `contact_status` is one of CONTACT_STATUSES (NULL ⇒ never
+    # contacted); `last_contact_at` is the day of the most recent interaction and
+    # `contact_notes` is what came out of it. Set from the dashboard only — the
+    # bot captures matches, not conversations.
+    contact_status = fields.CharField(max_length=32, null=True)
+    last_contact_at = fields.DateField(null=True)
+    contact_notes = fields.TextField(null=True)
     is_temporary = fields.BooleanField(default=False)
     photo_file_id = fields.TextField(null=True)  # Telegram file_id (MVP storage)
     notes = fields.TextField(null=True)
