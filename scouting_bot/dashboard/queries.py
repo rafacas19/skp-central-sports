@@ -13,6 +13,8 @@ from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 from ..models import (
+    CONTACT_NONE,
+    CONTACT_STATUSES,
     DECISION_ADVANCE,
     RATING_DECISIONS,
     SESSION_ACTIVE,
@@ -114,6 +116,11 @@ def _player_row(p: Prospect) -> dict:
         "decision": prospect_decision(p),
         "matches": matches,
         "observations": len(p.observations),
+        # Contact follow-up. A missing status reads as "Sin contactar" so the
+        # column and the filter never show a blank the user has to interpret.
+        "contact_status": p.contact_status or CONTACT_NONE,
+        "last_contact_at": p.last_contact_at,
+        "contact_notes": p.contact_notes,
         # Card presentation: how the player is shown, and how much to trust the
         # rating (a single viewing is a weaker claim than four).
         "initials": _initials(p),
@@ -380,6 +387,7 @@ async def list_players(
     age_bucket: str | None = None,
     foot: str | None = None,
     nationality: str | None = None,
+    contact: str | None = None,  # a CONTACT_STATUSES label
     sort: str | None = None,
 ) -> dict:
     """All prospects, filtered in Python. `q` is accent-insensitive (matched
@@ -409,6 +417,8 @@ async def list_players(
             continue
         if nationality and row["nationality"] != nationality:
             continue
+        if contact and row["contact_status"] != contact:
+            continue
         rows.append(row)
 
     return {
@@ -423,6 +433,12 @@ async def list_players(
         "nationality_options": sorted(
             {r["nationality"] for r in all_rows if r["nationality"]}
         ),
+        # Funnel order, and only the states actually present — same rule as every
+        # other dropdown here: a filter never offers a dead end.
+        "contact_options": [
+            c for c in CONTACT_STATUSES
+            if c in {r["contact_status"] for r in all_rows}
+        ],
         "sort_options": [{"key": k, "label": label} for k, label in SORT_OPTIONS],
     }
 
@@ -553,11 +569,15 @@ async def player_detail(prospect_id: int) -> dict | None:
             "rating": p.latest_rating,
             "decision": prospect_decision(p),
             "notes": p.notes,
+            "contact_status": p.contact_status or CONTACT_NONE,
+            "last_contact_at": p.last_contact_at,
+            "contact_notes": p.contact_notes,
             "matches": len(matches),
             "observations": len(obs),
         },
         "matches": matches,
         "rating_history": history,
+        "contact_options": list(CONTACT_STATUSES),
     }
 
 
@@ -568,18 +588,51 @@ async def identity_collision(
 
     Renaming into an existing player must not create a second record for one
     person — the caller sends the client to the merge flow instead."""
+    return await identity_taken(
+        prospect.agent_chat_id, normalized_name, normalized_team, exclude_id=prospect.id
+    )
+
+
+async def identity_taken(
+    chat_id: int,
+    normalized_name: str,
+    normalized_team: str,
+    *,
+    exclude_id: int | None = None,
+) -> Prospect | None:
+    """The prospect already keyed to (chat, name, team), if any.
+
+    Same key the bot resolves names on (storage.get_or_create_prospect), so a
+    player created here and one the bot captures later are the same record —
+    and creating a second one for the same person is caught before it happens."""
     if not normalized_name:
         return None
-    return await (
-        Prospect.filter(
-            agent_chat_id=prospect.agent_chat_id,
-            normalized_name=normalized_name,
-            normalized_team=normalized_team,
-        )
-        .exclude(id=prospect.id)
-        .prefetch_related("observations")  # display_name reads them
-        .first()
+    query = Prospect.filter(
+        agent_chat_id=chat_id,
+        normalized_name=normalized_name,
+        normalized_team=normalized_team,
     )
+    if exclude_id is not None:
+        query = query.exclude(id=exclude_id)
+    return await query.prefetch_related("observations").first()  # display_name reads them
+
+
+async def scout_chat_id() -> int:
+    """The chat id new dashboard records belong to.
+
+    Prospects are keyed per scout (`agent_chat_id`), but the dashboard has no
+    Telegram identity of its own — it is the same single scout the bot serves
+    (see the module docstring). Take it from the most recent session, falling
+    back to any existing prospect, so a player created here is the one the bot
+    finds when it hears that name. On a virgin database there is nobody yet: 0
+    is a placeholder the first bot session will never collide with, and the
+    profile can be merged if it ever needs to be.
+    """
+    session = await Session.all().order_by("-id").first()
+    if session is not None:
+        return session.agent_chat_id
+    prospect = await Prospect.all().order_by("-id").first()
+    return prospect.agent_chat_id if prospect is not None else 0
 
 
 async def get_prospect(prospect_id: int) -> Prospect | None:

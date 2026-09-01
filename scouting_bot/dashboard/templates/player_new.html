@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "_player_form.html" import player_fields %}
+{% block title %}Nuevo jugador — Panel de Scouting{% endblock %}
+{% block content %}
+<p><a class="back" href="/dashboard/jugadores">← Jugadores</a></p>
+<h1>Nuevo jugador</h1>
+
+{% if collision %}
+<div class="callout warn">
+  Ya existe un jugador con ese nombre y equipo:
+  <a href="/dashboard/jugadores/{{ collision.id }}">{{ collision.name }}</a>.
+  Abre su ficha para completarla, o usa un nombre que los distinga.
+</div>
+{% elif errors %}
+<div class="callout warn">Revisa los campos marcados; no se creó nada todavía.</div>
+{% endif %}
+
+<p class="muted">
+  El jugador se crea sin observaciones. Cuando el bot lo mencione por su nombre
+  en un partido, las notas se le añaden a esta misma ficha.
+</p>
+
+<form method="post" action="/dashboard/jugadores/nuevo" class="form">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+
+  {{ player_fields(values, errors, positions, feet, ratings, decisions,
+                   contact_statuses, "Obligatorio: es como el bot lo reconocerá en los partidos.") }}
+
+  <div class="form-actions">
+    <button type="submit" class="primary">Crear jugador</button>
+    <a class="button-link" href="/dashboard/jugadores">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

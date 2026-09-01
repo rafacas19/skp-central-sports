@@ -56,6 +56,32 @@
 </section>
 {% endif %}
 
+<section class="contact">
+  <h2>Seguimiento</h2>
+  <p>
+    <span class="chip">{{ player.contact_status }}</span>
+    {% if player.last_contact_at %}
+    <span class="muted">Último contacto: {{ player.last_contact_at | fecha }}</span>
+    {% endif %}
+  </p>
+  {% if player.contact_notes %}<p>{{ player.contact_notes }}</p>{% endif %}
+  {% if player.agent_name or player.agent_phone %}
+  <p class="muted">Agente: {{ player.agent_name or "—" }}{% if player.agent_phone %} · {{ player.agent_phone }}{% endif %}</p>
+  {% endif %}
+  <div class="chips">
+    {% for c in contact_options %}
+    {% if c != player.contact_status %}
+    <form method="post" action="/dashboard/jugadores/{{ player.id }}/contacto">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+      <input type="hidden" name="estado" value="{{ c }}">
+      <button type="submit" class="chip-button">{{ c }}</button>
+    </form>
+    {% endif %}
+    {% endfor %}
+  </div>
+  <p class="hint muted">Al marcar un estado se guarda la fecha de hoy como último contacto.</p>
+</section>
+
 {% if player.notes %}
 <section>
   <h2>Notas</h2>

@@ -5,14 +5,14 @@ Drives the real FastAPI app over httpx's ASGITransport (no lifespan — the
 settings are injected per-test via the `dashboard_auth` fixture.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 import pytest
 import pytest_asyncio
 
 from scouting_bot.config import settings
-from scouting_bot.dashboard import auth
+from scouting_bot.dashboard import auth, queries
 from scouting_bot.models import Observation, Prospect, Session
 
 PASSWORD = "prueba-scouting"
@@ -1122,3 +1122,359 @@ async def test_filters_only_offer_values_present_in_the_data(client, dashboard_a
     assert 'value="ambidiestro"' not in text
     assert ">&nbsp;&nbsp;Pivote<" not in text
     assert 'value="Venezuela"' in text
+
+
+# ── Creating a player from scratch ───────────────────────────────────────
+async def _new_form(client: httpx.AsyncClient) -> str:
+    """Open the create page and return its CSRF token (the browser's job)."""
+    resp = await client.get("/dashboard/jugadores/nuevo")
+    assert resp.status_code == 200
+    return _csrf(resp.text)
+
+
+async def test_new_player_requires_auth(client, dashboard_auth):
+    resp = await client.get("/dashboard/jugadores/nuevo")
+    assert resp.status_code == 303
+
+
+async def test_players_list_offers_the_create_button(client, dashboard_auth):
+    await _seed()
+    await _login(client)
+    text = (await client.get("/dashboard/jugadores")).text
+    assert 'href="/dashboard/jugadores/nuevo"' in text
+    assert "Nuevo jugador" in text
+
+
+async def test_new_player_page_renders_the_empty_form(client, dashboard_auth):
+    await _login(client)
+    resp = await client.get("/dashboard/jugadores/nuevo")
+    assert resp.status_code == 200
+    text = resp.text
+    assert "Nuevo jugador" in text and "Crear jugador" in text
+    assert 'action="/dashboard/jugadores/nuevo"' in text
+    # The same option lists the edit form offers.
+    assert "Delantero centro" in text and "Valor de mercado" in text
+
+
+async def test_create_player_saves_and_opens_the_profile(client, dashboard_auth):
+    await _seed()
+    await _login(client)
+    csrf = await _new_form(client)
+
+    resp = await client.post(
+        "/dashboard/jugadores/nuevo",
+        data={
+            auth.CSRF_FIELD: csrf,
+            "nombre": "Andrés Mosquera",
+            "equipo": "Cali",
+            "posicion": "Lateral izquierdo",
+            "dorsal": "3",
+            "anio_nacimiento": "2007",
+            "estatura": "175",
+            "pie": "izquierdo",
+            "nacionalidad": "Colombia",
+            "procedencia": "Academia Cali",
+            "valor": "$120.000",
+            "valoracion": "4",
+            "decision": "",
+            "notas": "Recomendado por un contacto; aún sin ver en vivo.",
+        },
+    )
+    assert resp.status_code == 303
+    p = await Prospect.get(name="Andrés Mosquera")
+    assert resp.headers["location"] == f"/dashboard/jugadores/{p.id}"
+    assert p.team == "Cali" and p.position == "Lateral izquierdo"
+    assert p.shirt_number == 3 and p.birth_year == 2007 and p.height_cm == 175
+    assert p.preferred_foot == "izquierdo" and p.nationality == "Colombia"
+    assert p.market_value_usd == 120000
+    assert p.latest_rating == 4 and p.decision_status is None  # derived
+    assert p.is_temporary is False
+    # Keyed exactly as the bot keys names, so a later note lands on this record.
+    assert p.normalized_name == "andres mosquera" and p.normalized_team == "cali"
+
+    # The profile page opens with no observations yet.
+    text = (await client.get(f"/dashboard/jugadores/{p.id}")).text
+    assert "Andrés Mosquera" in text
+    assert "Muy interesante" in text  # 4 → auto-decision
+    assert "Sin observaciones registradas." in text
+
+    # And it shows up in the list.
+    assert "Andrés Mosquera" in (await client.get("/dashboard/jugadores")).text
+
+
+async def test_created_player_is_the_record_the_bot_resolves(client, dashboard_auth, storage):
+    """A player typed into the panel and one the bot hears about are one record."""
+    seeded = await _seed()  # sessions belong to chat 1
+    await _login(client)
+    csrf = await _new_form(client)
+    resp = await client.post(
+        "/dashboard/jugadores/nuevo",
+        data={auth.CSRF_FIELD: csrf, "nombre": "Camilo Reyes", "equipo": "Millonarios"},
+    )
+    assert resp.status_code == 303
+    created = await Prospect.get(name="Camilo Reyes")
+    assert created.agent_chat_id == seeded["old"].agent_chat_id
+
+    # The bot resolving that same name+team lands on the record, not a second one.
+    resolved = await storage.get_or_create_prospect(1, "Camilo Reyes", "Millonarios")
+    assert resolved.id == created.id
+    assert await Prospect.filter(normalized_name="camilo reyes").count() == 1
+
+
+async def test_create_player_requires_a_name(client, dashboard_auth):
+    await _login(client)
+    csrf = await _new_form(client)
+    before = await Prospect.all().count()
+    resp = await client.post(
+        "/dashboard/jugadores/nuevo",
+        data={auth.CSRF_FIELD: csrf, "nombre": "  ", "equipo": "Cali"},
+    )
+    assert resp.status_code == 400
+    assert "El nombre es obligatorio." in resp.text
+    assert 'value="Cali"' in resp.text  # what was typed survives the round trip
+    assert await Prospect.all().count() == before
+
+
+async def test_create_player_rejects_bad_values_without_saving(client, dashboard_auth):
+    await _login(client)
+    csrf = await _new_form(client)
+    resp = await client.post(
+        "/dashboard/jugadores/nuevo",
+        data={auth.CSRF_FIELD: csrf, "nombre": "Test", "edad": "180"},
+    )
+    assert resp.status_code == 400
+    assert "La edad debe estar entre 10 y 60." in resp.text
+    assert await Prospect.filter(name="Test").count() == 0
+
+
+async def test_create_player_detects_an_existing_identity(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    csrf = await _new_form(client)
+    resp = await client.post(
+        "/dashboard/jugadores/nuevo",
+        data={auth.CSRF_FIELD: csrf, "nombre": "Jordan Ferrin", "equipo": "Millonarios"},
+    )
+    assert resp.status_code == 409
+    assert "Ya existe un jugador con ese nombre y equipo" in resp.text
+    assert f'/dashboard/jugadores/{seeded["ferrin"].id}' in resp.text
+    assert await Prospect.filter(normalized_name="jordan ferrin").count() == 1
+
+
+async def test_create_player_requires_csrf(client, dashboard_auth):
+    await _login(client)
+    resp = await client.post(
+        "/dashboard/jugadores/nuevo", data={auth.CSRF_FIELD: "falso", "nombre": "X"}
+    )
+    assert resp.status_code == 400
+    assert await Prospect.filter(name="X").count() == 0
+
+
+# ── Team category derived from the team name ─────────────────────────────
+async def test_create_player_splits_the_team_category(client, dashboard_auth):
+    await _login(client)
+    csrf = await _new_form(client)
+    resp = await client.post(
+        "/dashboard/jugadores/nuevo",
+        data={auth.CSRF_FIELD: csrf, "nombre": "Andrés Mosquera", "equipo": "Santa Fe U18"},
+    )
+    assert resp.status_code == 303
+    p = await Prospect.get(name="Andrés Mosquera")
+    assert p.team == "Santa Fe" and p.category == "Sub-18"
+    assert p.normalized_team == "santa fe"
+
+
+async def test_edit_team_rename_splits_the_category(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ocampo"].id
+    csrf, _ = await _edit_form(client, pid)
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/editar",
+        data={auth.CSRF_FIELD: csrf, "nombre": "Ocampo", "equipo": "América Sub-20"},
+    )
+    assert resp.status_code == 303
+    p = await Prospect.get(id=pid)
+    assert p.team == "América" and p.category == "Sub-20"
+
+
+async def test_edit_without_a_category_keeps_the_stored_one(client, dashboard_auth):
+    """The form has no category field, so saving it must not wipe the value."""
+    seeded = await _seed()
+    await Prospect.filter(id=seeded["ferrin"].id).update(category="Sub-18")
+    await _login(client)
+    pid = seeded["ferrin"].id
+    csrf, _ = await _edit_form(client, pid)
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/editar",
+        data={auth.CSRF_FIELD: csrf, "nombre": "Jordan Ferrin", "equipo": "Millonarios"},
+    )
+    assert resp.status_code == 303
+    p = await Prospect.get(id=pid)
+    assert p.team == "Millonarios" and p.category == "Sub-18"
+
+
+async def test_creating_a_player_of_a_category_team_hits_the_existing_record(
+    client, dashboard_auth
+):
+    """"Jordan Ferrin / Millonarios U18" is the seeded "Millonarios" player."""
+    seeded = await _seed()
+    await _login(client)
+    csrf = await _new_form(client)
+    resp = await client.post(
+        "/dashboard/jugadores/nuevo",
+        data={auth.CSRF_FIELD: csrf, "nombre": "Jordan Ferrin", "equipo": "Millonarios U18"},
+    )
+    assert resp.status_code == 409
+    assert f'/dashboard/jugadores/{seeded["ferrin"].id}' in resp.text
+
+
+# ── Contact follow-up (CRM) ──────────────────────────────────────────────
+async def test_profile_shows_the_contact_section(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    text = (await client.get(f"/dashboard/jugadores/{seeded['ferrin'].id}")).text
+    assert "Seguimiento" in text
+    assert "Sin contactar" in text  # no status stored ⇒ never contacted
+    assert 'action="/dashboard/jugadores/%d/contacto"' % seeded["ferrin"].id in text
+    assert "En conversación" in text  # the one-click buttons
+
+
+async def test_contact_button_sets_status_and_stamps_today(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ferrin"].id
+    csrf = _csrf((await client.get(f"/dashboard/jugadores/{pid}")).text)
+
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/contacto",
+        data={auth.CSRF_FIELD: csrf, "estado": "Contactado"},
+    )
+    assert resp.status_code == 303
+    p = await Prospect.get(id=pid)
+    assert p.contact_status == "Contactado"
+    assert p.last_contact_at == datetime.now(queries.TZ).date()
+
+    text = (await client.get(f"/dashboard/jugadores/{pid}")).text
+    assert "Contactado" in text and "Último contacto" in text
+
+
+async def test_contact_button_back_to_none_clears_the_date(client, dashboard_auth):
+    seeded = await _seed()
+    await Prospect.filter(id=seeded["ocampo"].id).update(
+        contact_status="Acuerdo", last_contact_at=date(2026, 8, 1)
+    )
+    await _login(client)
+    pid = seeded["ocampo"].id
+    csrf = _csrf((await client.get(f"/dashboard/jugadores/{pid}")).text)
+
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/contacto",
+        data={auth.CSRF_FIELD: csrf, "estado": "Sin contactar"},
+    )
+    assert resp.status_code == 303
+    p = await Prospect.get(id=pid)
+    assert p.contact_status is None and p.last_contact_at is None
+
+
+async def test_contact_button_rejects_an_unknown_status(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ferrin"].id
+    csrf = _csrf((await client.get(f"/dashboard/jugadores/{pid}")).text)
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/contacto",
+        data={auth.CSRF_FIELD: csrf, "estado": "Fichado ya"},
+    )
+    assert resp.status_code == 400
+    assert (await Prospect.get(id=pid)).contact_status is None
+
+
+async def test_contact_button_requires_csrf(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    resp = await client.post(
+        f"/dashboard/jugadores/{seeded['ferrin'].id}/contacto",
+        data={auth.CSRF_FIELD: "falso", "estado": "Contactado"},
+    )
+    assert resp.status_code == 400
+
+
+async def test_edit_form_saves_the_contact_fields(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ferrin"].id
+    csrf, _ = await _edit_form(client, pid)
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/editar",
+        data={
+            auth.CSRF_FIELD: csrf,
+            "nombre": "Jordan Ferrin",
+            "equipo": "Millonarios",
+            "estado_contacto": "Reunión agendada",
+            "fecha_contacto": "2026-08-20",
+            "notas_contacto": "Hablé con el agente; reunión el viernes.",
+        },
+    )
+    assert resp.status_code == 303
+    p = await Prospect.get(id=pid)
+    assert p.contact_status == "Reunión agendada"
+    assert p.last_contact_at == date(2026, 8, 20)
+    assert p.contact_notes == "Hablé con el agente; reunión el viernes."
+
+    text = (await client.get(f"/dashboard/jugadores/{pid}")).text
+    assert "Reunión agendada" in text and "20/08/2026" in text
+    assert "reunión el viernes" in text
+
+
+async def test_edit_form_rejects_a_future_contact_date(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    pid = seeded["ferrin"].id
+    csrf, _ = await _edit_form(client, pid)
+    future = (date.today() + timedelta(days=3)).isoformat()
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/editar",
+        data={
+            auth.CSRF_FIELD: csrf, "nombre": "Jordan Ferrin", "equipo": "Millonarios",
+            "fecha_contacto": future,
+        },
+    )
+    assert resp.status_code == 400
+    assert "no puede ser futura" in resp.text
+    assert (await Prospect.get(id=pid)).last_contact_at is None
+
+
+async def test_create_player_with_a_contact_status(client, dashboard_auth):
+    await _login(client)
+    csrf = await _new_form(client)
+    resp = await client.post(
+        "/dashboard/jugadores/nuevo",
+        data={
+            auth.CSRF_FIELD: csrf, "nombre": "Camilo Reyes", "equipo": "Cali",
+            "estado_contacto": "Contactado", "fecha_contacto": "2026-08-15",
+        },
+    )
+    assert resp.status_code == 303
+    p = await Prospect.get(name="Camilo Reyes")
+    assert p.contact_status == "Contactado" and p.last_contact_at == date(2026, 8, 15)
+
+
+async def test_players_list_shows_and_filters_by_contact(client, dashboard_auth):
+    seeded = await _seed()
+    await Prospect.filter(id=seeded["ferrin"].id).update(
+        contact_status="En conversación", last_contact_at=date(2026, 8, 10)
+    )
+    await _login(client)
+
+    text = (await client.get("/dashboard/jugadores")).text
+    assert "Contacto" in text and "En conversación" in text and "10/08/2026" in text
+
+    resp = await client.get("/dashboard/jugadores", params={"contacto": "En conversación"})
+    assert "Jordan Ferrin" in resp.text and "Ocampo" not in resp.text
+
+    resp = await client.get("/dashboard/jugadores", params={"contacto": "Sin contactar"})
+    assert "Ocampo" in resp.text and "Jordan Ferrin" not in resp.text
+
+    # A status nobody is in is not offered as a filter.
+    assert 'value="Acuerdo"' not in text

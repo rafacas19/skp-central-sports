@@ -1,8 +1,11 @@
 {% extends "base.html" %}
-{% from "_filters.html" import position_filter, age_filter, team_filter, foot_filter, nationality_filter %}
+{% from "_filters.html" import position_filter, age_filter, team_filter, foot_filter, nationality_filter, contact_filter %}
 {% block title %}Jugadores — Panel de Scouting{% endblock %}
 {% block content %}
-<h1>Jugadores</h1>
+<div class="page-head">
+  <h1>Jugadores</h1>
+  <a class="button-link primary" href="/dashboard/jugadores/nuevo">+ Nuevo jugador</a>
+</div>
 
 <form class="filters" method="get" action="/dashboard/jugadores">
   <label>Buscar
@@ -13,6 +16,7 @@
   {{ team_filter(teams, filters.equipo) }}
   {{ foot_filter(foot_options, filters.pie) }}
   {{ nationality_filter(nationality_options, filters.nacionalidad) }}
+  {{ contact_filter(contact_options, filters.contacto) }}
   <label>Decisión
     <select name="decision">
       <option value="">Todas</option>
@@ -44,7 +48,7 @@
 <p class="muted">{{ players | length }} jugador{{ "es" if players | length != 1 }}</p>
 <table>
   <thead>
-    <tr><th>Jugador</th><th>Pos.</th><th>Edad</th><th>Equipo</th><th>Pie</th><th>Valor</th><th>Valoración</th><th>Decisión</th><th>Part.</th></tr>
+    <tr><th>Jugador</th><th>Pos.</th><th>Edad</th><th>Equipo</th><th>Pie</th><th>Valor</th><th>Valoración</th><th>Decisión</th><th>Contacto</th><th>Part.</th></tr>
   </thead>
   <tbody>
     {% for p in players %}
@@ -57,6 +61,7 @@
       <td class="num">{{ p.market_value_usd | valor }}</td>
       <td class="num rating">{% if p.rating is not none %}{{ p.rating | valoracion }} / 5{% else %}—{% endif %}</td>
       <td>{% if p.decision %}<span class="chip small">{{ p.decision }}</span>{% else %}—{% endif %}</td>
+      <td>{{ p.contact_status }}{% if p.last_contact_at %}<span class="muted"> · {{ p.last_contact_at | fecha }}</span>{% endif %}</td>
       <td class="num">{{ p.matches }}</td>
     </tr>
     {% endfor %}
@@ -65,6 +70,7 @@
 {% elif filters.any %}
 <p class="muted">No hay jugadores que coincidan con los filtros.</p>
 {% else %}
-<p class="muted">Todavía no hay jugadores registrados.</p>
+<p class="muted">Todavía no hay jugadores registrados.
+  <a href="/dashboard/jugadores/nuevo">Crea el primero</a> o empieza un partido desde el bot.</p>
 {% endif %}
 {% endblock %}
