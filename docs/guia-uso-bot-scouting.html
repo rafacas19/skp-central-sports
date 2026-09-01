@@ -19,6 +19,7 @@
     font-size: 13.5pt; color: #14532d; margin: 22px 0 6px;
     border-bottom: 1px solid #d8e6dd; padding-bottom: 3px;
   }
+  h3 { font-size: 11.5pt; color: #14532d; margin: 14px 0 4px; }
   p { margin: 6px 0; }
   code {
     background: #f0f3f1; border: 1px solid #e0e6e2; border-radius: 4px;
@@ -56,66 +57,109 @@
 </header>
 
 <p>Escribe tus observaciones en <strong>lenguaje natural</strong> (texto o voz) durante el
-partido. El bot <strong>agrupa</strong> las notas por jugador, <strong>calcula</strong> la
-valoración y la decisión, y <strong>exporta</strong> el informe en Excel. Tú observas; el
-bot organiza. No necesitas manejar los datos a mano.</p>
+partido. El bot <strong>agrupa</strong> las notas por jugador, les pone el <strong>minuto</strong>,
+<strong>calcula</strong> la decisión a partir de tu valoración y <strong>exporta</strong> el
+informe en Excel. Tú observas; el bot organiza.</p>
 
-<h2>1. Empezar un partido</h2>
+<h2>Flujo de un partido en 4 pasos</h2>
+<pre><code>1. /nuevo Millonarios vs América      → crea el partido
+2. /primer_tiempo                     → arranca el cronómetro
+3. (texto o voz)                      → tus observaciones
+4. /fin                               → informe en Excel</code></pre>
+<p>Todo lo demás (valoraciones, cambios, notas de equipo, correcciones) se hace sobre la
+marcha, sin salir de esos cuatro pasos.</p>
+
+<h2>1. Identifícate una sola vez</h2>
+<pre><code>/yo Rafael</code></pre>
+<p>Tu nombre queda guardado y aparece en los informes de todos tus partidos. Solo hace falta
+repetirlo si quieres cambiarlo. Con <code>/start</code> el bot te recuerda el flujo y los comandos.</p>
+
+<h2>2. Empezar un partido</h2>
 <pre><code>/nuevo Millonarios vs América</code></pre>
-<p>Metadatos opcionales (separados por <code>|</code>, en cualquier orden):</p>
+<p>Datos opcionales, separados por <code>|</code> y en cualquier orden:</p>
 <pre><code>/nuevo Millonarios vs América | competición=Liga | fecha=2026-06-20 | sede=El Campín</code></pre>
 <ul>
-  <li>Si no indicas la <strong>fecha</strong>, se asume la de hoy.</li>
-  <li>Solo puede haber <strong>un partido activo a la vez</strong>. Si intentas abrir otro, el bot te pregunta si quieres cerrar el actual primero.</li>
+  <li>Campos admitidos: <code>competición</code>, <code>categoría</code>, <code>fecha</code>,
+  <code>sede</code>. Un segmento sin <code>=</code> se guarda como etiqueta libre del partido.</li>
+  <li>La <strong>fecha</strong> acepta <code>2026-06-20</code> o <code>20/06/2026</code>. Si no la
+  indicas, se asume la de hoy.</li>
+  <li>El equipo local va siempre <strong>primero</strong>: <code>Local vs Visitante</code>.</li>
+  <li>Solo puede haber <strong>un partido activo a la vez</strong>. Si intentas abrir otro, el bot
+  te pregunta si quieres cerrar el actual primero.</li>
 </ul>
 
-<h2>2. <span class="new">🆕 Cronómetro del partido</span></h2>
-<p>El bot marca cada observación con el <strong>minuto de partido</strong>. Tú controlas el reloj con dos comandos:</p>
+<h2>3. El cronómetro del partido</h2>
+<p>El bot marca cada observación con el <strong>minuto de partido</strong>. Tú controlas el reloj:</p>
 <pre><code>/primer_tiempo     → arranca el reloj en el minuto 0
 /segundo_tiempo    → reanuda el reloj en el minuto 45</code></pre>
 <ul>
-  <li>Envía <code>/primer_tiempo</code> al pitido inicial y <code>/segundo_tiempo</code> cuando arranque la segunda mitad.</li>
-  <li>El bot avisa al llegar al minuto 45 y al 90 (el reloj sigue contando el tiempo añadido).</li>
+  <li>Envía <code>/primer_tiempo</code> al pitido inicial y <code>/segundo_tiempo</code> cuando
+  arranque la segunda mitad.</li>
+  <li>El bot avisa al llegar al minuto 45 y al 90. El reloj <strong>no se corta</strong>: sigue
+  contando el tiempo añadido.</li>
+  <li>Si te olvidas de arrancarlo, las observaciones se guardan igual, solo que <strong>sin
+  minuto</strong>.</li>
 </ul>
 <div class="note avoid-break">
   <strong>Si el reloj se desfasa</strong> (saque lento, tiempo añadido), escribe el minuto real
   dentro de una observación y el bot se re-sincroniza:
   <pre><code>Jordan Ferrin gol min 37</code></pre>
-  Esa observación queda como <em>“Gol min 37”</em> y el cronómetro se ajusta al 37.
+  Esa observación queda como <em>“Gol min 37”</em> y el cronómetro se ajusta al 37. También vale
+  <code>37'</code>.
 </div>
 
-<h2>3. Registrar observaciones (texto o voz)</h2>
-<p>Escribe (o envía una <strong>nota de voz</strong>) describiendo al jugador. El bot extrae
-nombre, número, equipo, posición, edad y estatura del texto. Ejemplos válidos:</p>
+<h2>4. Registrar observaciones (texto o voz)</h2>
+<p>Escribe, o envía una <strong>nota de voz</strong>, describiendo al jugador con tus palabras.
+El bot identifica de quién hablas por <strong>nombre</strong>, <strong>número</strong>,
+<strong>equipo</strong> y <strong>posición</strong>. Ejemplos válidos:</p>
 <pre><code>Jordan Ferrin buen juego aéreo valoración 4
-Edwin Rodríguez, delantero ágil en el área
-Edwin Rodríguez, 17 años altura 1,87
-Número 7 rápido en el 1vs1</code></pre>
-<p>Todas las notas del <strong>mismo jugador se agrupan</strong> en una sola fila del informe,
-con sus minutos. No hace falta un formato rígido.</p>
+América, #7, extremo, muy rápido en el 1vs1
+Número 10 de Millonarios, buena visión pero pierde el balón
+El 10 muy bien, pero el 4 va muy lento</code></pre>
+<ul>
+  <li>El bot responde <code>✅</code> cuando la nota queda guardada.</li>
+  <li>Un mismo mensaje puede hablar de <strong>varios jugadores</strong>: el bot lo separa en una
+  nota por jugador y responde <em>“✅ 2 notas registradas”</em>.</li>
+  <li>Todas las notas del <strong>mismo jugador se agrupan</strong> en una sola fila del informe,
+  con sus minutos. No hace falta un formato rígido.</li>
+  <li>Basta con el <strong>apellido</strong>: el bot tolera acentos y pequeños errores de
+  transcripción (<em>“perez”</em> se agrupa con <em>“Pérez”</em>).</li>
+</ul>
 <div class="note avoid-break">
-  <strong>Cuando falta el equipo (número solo):</strong> si das un número sin decir el
-  equipo, el bot <strong>no adivina</strong> — pregunta:
-  <pre><code>🤔 ¿El número 7 es de Millonarios o de América?
-   [Millonarios] [América]</code></pre>
+  <strong>Menciona siempre un nombre o un número.</strong> Una nota puramente posicional
+  (<em>“el extremo derecho es rapidísimo”</em>) se guarda, pero al no tener con quién identificarla
+  <strong>no genera fila en el Excel</strong>. Con decir <em>“el 7, rapidísimo”</em> ya es suficiente.
+</div>
+<div class="note avoid-break">
+  <strong>Cuando das un número sin equipo:</strong> el bot <strong>no adivina</strong> — pregunta:
+  <pre><code>🤔 ¿Te refieres al #7 de Millonarios o al #7 de América?
+   [#7 de Millonarios] [#7 de América] [🚫 Omitir]</code></pre>
+  Contesta cuando puedas (la nota conserva el minuto en el que la enviaste, no el de la respuesta).
+  <strong>Omitir descarta la nota.</strong>
 </div>
 
-<h2>4. <span class="new">🆕 Sustituciones (cambios)</span></h2>
-<p>Escribe el cambio en lenguaje natural. Lo importante es <strong>quién entra</strong>: el bot
-lo registra como jugador para que puedas seguir observándolo.</p>
+<h2>5. Sustituciones (cambios)</h2>
+<p>Escribe el cambio en lenguaje natural. Lo importante es <strong>quién entra</strong>: el bot lo
+registra como jugador para que puedas seguir observándolo el resto del partido.</p>
 <pre><code>Entra Jordan Ferrin y sale el número 7
 Entra Jordan Ferrin sale Ocampo
-Entra número 7 y sale número 9</code></pre>
-<p>Queda como <em>“Jordan Ferrin: Entra min 62”</em>. Si el que entra es un número y no está
-claro el equipo, el bot pregunta.</p>
+Entra el 14 de América y sale el 9</code></pre>
+<p>El bot confirma: <em>“🔄 Cambio registrado (min 62). Entra: Jordan Ferrin.”</em> Si el que entra
+es un número y no está claro el equipo, te lo pregunta.</p>
 
-<h2>5. <span class="new">Valoración 1–5 y decisión automática</span></h2>
+<h2>6. Valoración 1–5 y decisión automática</h2>
 <p>Tú pones la nota (del <strong>1 al 5</strong>), con comando o dentro de una observación:</p>
 <pre><code>/valorar Jordan Ferrin 4
 Jordan Ferrin buena definición valoración 4</code></pre>
-<p>La <strong>valoración final</strong> es la última que pusiste. La <strong>decisión se calcula
-sola</strong> a partir de la nota:</p>
-<table>
+<ul>
+  <li>La <strong>valoración final</strong> es la última que pusiste; puedes corregirla cuantas veces
+  quieras.</li>
+  <li>La valoración dentro del texto solo se aplica si el mensaje habla de <strong>un solo
+  jugador</strong>. Si hablas de varios, usa <code>/valorar</code>.</li>
+  <li>Si el nombre coincide con varios jugadores, el bot te pide que seas más específico.</li>
+</ul>
+<p>La <strong>decisión se calcula sola</strong> a partir de la valoración:</p>
+<table class="avoid-break">
   <thead><tr><th>Valoración</th><th>Decisión</th></tr></thead>
   <tbody>
     <tr><td>1</td><td>A descartar</td></tr>
@@ -126,45 +170,84 @@ sola</strong> a partir de la nota:</p>
   </tbody>
 </table>
 
-<h2>6. Notas de equipo (tácticas)</h2>
-<pre><code>/equipo Millonarios juega 4-2-3-1, defensas fuertes, extremos rápidos</code></pre>
-<p>Se guardan aparte y aparecen en la hoja <strong>Notas equipo</strong> del informe.</p>
+<h2>7. Notas de equipo (tácticas)</h2>
+<pre><code>/equipo Millonarios juega 4-2-3-1, defensas fuertes, extremos rápidos
+/equipo visitante presiona muy alto tras pérdida</code></pre>
+<p>Si empiezas por <code>local</code> o <code>visitante</code>, la nota queda asignada a ese equipo.
+Se guardan aparte y aparecen en la hoja <strong>Notas equipo</strong> del informe, con su minuto.</p>
 
-<h2>7. Jugador desconocido por foto</h2>
+<h2>8. Jugador desconocido por foto</h2>
 <pre><code>/foto</code></pre>
-<p>El bot pide la foto → la envías → luego mandas la observación. Crea un perfil temporal que
-podrás completar más adelante.</p>
-
-<h2>8. <span class="new">Finalizar el partido → informe en Excel</span></h2>
-<pre><code>/fin</code></pre>
-<p>Cierra el partido y te envía un <strong>archivo Excel (.xlsx) editable</strong> con tres hojas:</p>
-<ul>
-  <li><strong>Local</strong> y <strong>Visitante</strong>: una fila por jugador, con las
-  observaciones agrupadas (con minutos), valoración final y decisión.</li>
-  <li><strong>Notas equipo</strong>: las notas tácticas.</li>
-</ul>
-<p>Columnas: <em>Match · Fecha · Local · Visitante · Club jugador · Nombre jugador · Número ·
-Edad · Estatura · Observaciones agrupadas · Valoración final · Decisión</em>.</p>
+<p>El bot pide la foto → la envías → luego mandas la observación, que queda asociada a un
+<strong>perfil temporal</strong>.</p>
 <div class="note avoid-break">
-  Antes de generar el informe, si el bot detecta dos nombres muy parecidos del mismo equipo
-  (p. ej. <em>Castro</em> y <em>Castro B.</em>), pregunta si son el mismo jugador para no
-  duplicar filas.
+  Ese perfil nace <strong>sin nombre</strong>. Antes de <code>/fin</code>, ponle uno para que
+  aparezca en el informe:
+  <pre><code>/editar desconocido nombre=Juan Pérez equipo=América</code></pre>
+  Si el nombre que escribes no existe todavía, el bot aplica los datos al <strong>último jugador
+  desconocido</strong> que registraste.
 </div>
 
-<h2>9. <span class="new">🆕 Histórico acumulado (base de scouting)</span></h2>
+<h2>9. Corregir sobre la marcha</h2>
+<h3>Deshacer la última nota</h3>
+<pre><code>/undo</code></pre>
+<p>Elimina la última observación registrada y te muestra cuál era.</p>
+<h3>Completar la ficha de un jugador</h3>
+<pre><code>/editar Jordan Ferrin posicion=Extremo derecho edad=17 altura=187
+/editar Ferrin equipo=Millonarios nota=Zurdo, juega por dentro</code></pre>
+<p>Campos: <code>nombre</code>, <code>equipo</code>, <code>posicion</code>, <code>edad</code>,
+<code>altura</code> (en cm) y <code>nota</code>. La <strong>edad y la estatura no se detectan
+solas</strong> desde el texto de la observación: se ponen aquí (o desde el panel web).</p>
+<h3>Unir dos fichas del mismo jugador</h3>
+<pre><code>/unir Jordan Ferrin | Ferrin</code></pre>
+<p>El bot pide confirmación y conserva el primer nombre. Al finalizar el partido también te
+preguntará por su cuenta si detecta nombres muy parecidos.</p>
+
+<h2>10. Finalizar el partido → informe en Excel</h2>
+<pre><code>/fin</code></pre>
+<p>Antes de generar el informe, si el bot detecta dos nombres muy parecidos del mismo equipo
+(p. ej. <em>Castro</em> y <em>Castro B.</em>), te pregunta si son el mismo jugador y con qué nombre
+te quedas. Después cierra el partido y te envía un <strong>resumen en el chat</strong> y un
+<strong>archivo Excel (.xlsx) editable</strong> con tres hojas:</p>
+<ul>
+  <li><strong>Local</strong> y <strong>Visitante</strong>: una fila por jugador, con todas sus
+  observaciones agrupadas y ordenadas por minuto, su valoración final y su decisión.</li>
+  <li><strong>Notas equipo</strong>: las notas tácticas, con equipo y minuto.</li>
+</ul>
+<p>Columnas de las hojas de jugadores: <em>Match · Fecha · Local · Visitante · Club jugador ·
+Nombre jugador · Número · Edad · Estatura · Observaciones agrupadas · Valoración final ·
+Decisión</em>.</p>
+<div class="note avoid-break">
+  Los jugadores a los que nunca les asignaste equipo salen en la hoja <strong>Local</strong>, con la
+  columna <em>Club jugador</em> vacía. Si ves alguno ahí que no toca, corrígelo con
+  <code>/editar &lt;nombre&gt; equipo=…</code> antes de finalizar.
+</div>
+
+<h2>11. Histórico acumulado (tu base de scouting)</h2>
 <pre><code>/historico</code></pre>
 <p>Genera un Excel con <strong>todos los jugadores observados en todos los partidos</strong>:
-club, partidos, fechas, observaciones anteriores y actuales, valoración, decisión y un
-resumen global. Funciona como exportación de la base de datos de scouting.</p>
+club, posición, edad, estatura, partidos observados, fechas, las observaciones agrupadas por
+partido, valoración, decisión y un resumen global generado por IA. Funciona como exportación
+completa de tu base de scouting y se puede pedir en cualquier momento, con o sin partido activo.</p>
 
-<h2>10. Informe de un jugador</h2>
+<h2>12. Informe de un jugador</h2>
 <pre><code>/reporte_jugador Jordan Ferrin</code></pre>
-<p>Muestra el historial del jugador en todos los partidos más un <strong>resumen generado por
-IA</strong> con patrones, fortalezas y una recomendación.</p>
+<p>Muestra su historial en todos los partidos más un <strong>resumen generado por IA</strong> con
+patrones, fortalezas, dudas y una recomendación. Debajo aparecen tres botones para dejar registrada
+la decisión de seguimiento: <strong>👀 Seguir observando</strong>, <strong>Avanzar</strong> o
+<strong>Descartar</strong>.</p>
 
-<h2>11. Identificarte como scout</h2>
-<pre><code>/yo Rafael</code></pre>
-<p>Tu nombre aparecerá en los informes. Se recuerda entre partidos.</p>
+<h2>Cosas útiles que conviene saber</h2>
+<ul>
+  <li><strong>Nada se pierde.</strong> El partido vive en el servidor: si se te cierra Telegram, se
+  te acaba la batería o el bot se reinicia, sigue exactamente donde lo dejaste.</li>
+  <li><strong>Si dejas el partido abierto</strong> sin actividad, el bot te pregunta si sigues
+  observando. Ciérralo con <code>/fin</code> cuando termines: hasta entonces cuenta como activo y no
+  puedes abrir otro.</li>
+  <li><strong>Las notas de voz</strong> se transcriben automáticamente; habla con normalidad y di el
+  nombre o el número del jugador.</li>
+  <li><strong>Si el bot responde “algo falló”</strong>, reenvía el mensaje: no se guardó nada.</li>
+</ul>
 
 <h2>📋 Resumen de comandos</h2>
 <table>
@@ -176,16 +259,21 @@ IA</strong> con patrones, fortalezas y una recomendación.</p>
     <tr><td><code>/valorar &lt;nombre&gt; &lt;1-5&gt;</code></td><td>Valoración manual (decisión automática)</td></tr>
     <tr><td><code>/equipo &lt;texto&gt;</code></td><td>Nota táctica del equipo</td></tr>
     <tr><td><code>/foto</code></td><td>Jugador desconocido por foto</td></tr>
+    <tr><td><code>/editar &lt;nombre&gt; campo=valor</code></td><td>Completar ficha (equipo, posicion, edad, altura, nota)</td></tr>
+    <tr><td><code>/unir &lt;nombre1&gt; | &lt;nombre2&gt;</code></td><td>Unir dos fichas del mismo jugador</td></tr>
+    <tr><td><code>/undo</code></td><td>Deshacer la última observación</td></tr>
+    <tr><td><code>/fin</code></td><td>Cerrar partido y generar el Excel</td></tr>
     <tr><td><code>/reporte_jugador &lt;nombre&gt;</code></td><td>Informe de un jugador + resumen IA</td></tr>
     <tr><td><code>/historico</code></td><td>Exportar toda la base de scouting</td></tr>
     <tr><td><code>/yo &lt;nombre&gt;</code></td><td>Tu nombre de scout</td></tr>
-    <tr><td><code>/fin</code></td><td>Cerrar partido y generar el Excel</td></tr>
-    <tr><td><code>/undo</code></td><td>Deshacer la última observación</td></tr>
+    <tr><td><code>/start</code></td><td>Recordatorio del flujo y los comandos</td></tr>
   </tbody>
 </table>
 <p style="font-size:9.5pt; color:#666;">Cada comando tiene alias en inglés
 (<code>/newmatch</code>, <code>/firsthalf</code>, <code>/secondhalf</code>, <code>/rate</code>,
-<code>/team</code>, <code>/photo</code>, <code>/playerreport</code>, <code>/history</code>).</p>
+<code>/team</code>, <code>/photo</code>, <code>/edit</code>, <code>/merge</code>,
+<code>/playerreport</code>, <code>/history</code>, <code>/endmatch</code>). En los argumentos,
+<code>local</code>/<code>visitante</code> y <code>home</code>/<code>away</code> son equivalentes.</p>
 
 <footer>
   Skip Central Sports — Bot de Scouting · Guía de uso · español · ¿Qué hay de nuevo? Ver CHANGELOG.md
