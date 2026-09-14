@@ -9,9 +9,11 @@ parameter here and nowhere else.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
+from ..categories import split_category
 from ..models import (
     CONTACT_NONE,
     CONTACT_STATUSES,
@@ -21,6 +23,8 @@ from ..models import (
     Observation,
     Prospect,
     Session,
+    Squad,
+    SquadMember,
     current_age,
     decision_for_rating,
 )
@@ -31,6 +35,7 @@ from ..positions import (
     position_abbr,
     position_category,
 )
+from ..report import SQUAD_COLUMNS, squad_row
 from ..taxonomy import name_matches, normalize_name
 
 # Canonical display order for the decision strip, best first.
@@ -333,13 +338,28 @@ def _in_age_bucket(age: int | None, bucket: str | None) -> bool:
     return (low is None or age >= low) and (high is None or age <= high)
 
 
+def _position_parts(text: str | None) -> list[str]:
+    """A position field split on commas.
+
+    A player can hold more than one role in the single field — "Defensa central,
+    Mediocentro defensivo", which is how call-up lists are written. Each part is
+    matched on its own so such a player doesn't disappear from every filter."""
+    return [part.strip() for part in (text or "").split(",") if part.strip()]
+
+
 def _matches_position(row: dict, wanted: str | None) -> bool:
-    """`wanted` is either a broad category ("Defensa") or a specific role."""
+    """`wanted` is either a broad category ("Defensa") or a specific role.
+
+    A multi-role player matches on any of his roles; a single-role one behaves
+    exactly as before (one part, the whole field)."""
     if not wanted:
         return True
+    parts = _position_parts(row["position"])
     if wanted in CATEGORIES:
-        return row["position_category"] == wanted
-    return normalize_name(row["position"] or "") == normalize_name(wanted)
+        return row["position_category"] == wanted or any(
+            position_category(part) == wanted for part in parts
+        )
+    return any(normalize_name(part) == normalize_name(wanted) for part in parts)
 
 
 def _sorted_by(rows: list[dict], sort: str | None) -> list[dict]:
@@ -578,6 +598,10 @@ async def player_detail(prospect_id: int) -> dict | None:
         "matches": matches,
         "rating_history": history,
         "contact_options": list(CONTACT_STATUSES),
+        # Call-ups he is in, and the squads he could still be added to — the
+        # club in `team` is untouched by either.
+        "squads": await player_squads(prospect_id),
+        "squad_options": await squad_options_for(prospect_id),
     }
 
 
@@ -718,3 +742,142 @@ async def match_detail(session_id: int) -> dict | None:
         "timeline": timeline,
         "team_notes": team_notes,
     }
+
+
+# ── Selecciones (national squads) ────────────────────────────────────────
+# "Selección" is the section's own noun; keeping it inside every squad name
+# would make the list read "Selección Colombia Sub-15" on every row.
+_SQUAD_PREFIX_RE = re.compile(r"^\s*selecci[oó]n(?:es)?\s+(?:de\s+)?", re.IGNORECASE)
+
+
+def squad_name_and_category(typed: str) -> tuple[str, str | None]:
+    """'Selección Colombia U15' → ('Colombia', 'Sub-15').
+
+    The age group is split off exactly the way club names are split, so the
+    squad and a club typed by the scout agree on what "U15" means. A squad
+    called nothing but "Selección" keeps that name instead of ending up blank.
+    """
+    name, category = split_category((typed or "").strip())
+    name = (name or "").strip()
+    stripped = _SQUAD_PREFIX_RE.sub("", name).strip()
+    return (stripped or name, category)
+
+
+def squad_title(squad: Squad) -> str:
+    """'Colombia Sub-15' — how a squad reads on every page, tab and file name."""
+    if squad.category:
+        return f"{squad.name} {squad.category}".strip()
+    return squad.name
+
+
+def _squad_sort_key(row: dict) -> tuple[str, str]:
+    return (normalize_name(row["name"]), row["category"] or "")
+
+
+async def list_squads() -> list[dict]:
+    """Every squad with how many players it holds, alphabetical."""
+    squads = await Squad.all().prefetch_related("members")
+    rows = [
+        {
+            "id": s.id,
+            "name": s.name,
+            "category": s.category,
+            "title": squad_title(s),
+            "players": len(s.members),
+        }
+        for s in squads
+    ]
+    rows.sort(key=_squad_sort_key)
+    return rows
+
+
+async def squad_players(squad_id: int) -> list[Prospect]:
+    """The squad's players, by name — the order the list is read in."""
+    members = await SquadMember.filter(squad_id=squad_id).prefetch_related("prospect")
+    players = [m.prospect for m in members]
+    players.sort(key=lambda p: normalize_name(p.name or ""))
+    return players
+
+
+def _candidate_label(p: Prospect) -> str:
+    """'Yaroll Martinez · Santa Fe' — enough to tell two namesakes apart."""
+    name = display_name(p)
+    return f"{name} · {p.team}" if p.team else name
+
+
+async def squad_detail(squad_id: int) -> dict | None:
+    """One squad: its players rendered as the client's own columns, plus the
+    players that could still be called up.
+
+    The table cells come from `report.squad_row`, the very function the .xlsx
+    export uses, so the screen and the downloaded file can never disagree."""
+    squad = await Squad.get_or_none(id=squad_id)
+    if squad is None:
+        return None
+    players = await squad_players(squad_id)
+    called = {p.id for p in players}
+    pool = await Prospect.filter(is_temporary=False).exclude(name="")
+    candidates = [
+        {"id": p.id, "label": _candidate_label(p)}
+        for p in sorted(pool, key=lambda p: normalize_name(p.name or ""))
+        if p.id not in called
+    ]
+    return {
+        "id": squad.id,
+        "name": squad.name,
+        "category": squad.category,
+        "title": squad_title(squad),
+        "columns": list(SQUAD_COLUMNS),
+        "players": [{"id": p.id, "cells": squad_row(p)} for p in players],
+        "candidates": candidates,
+    }
+
+
+async def player_squads(prospect_id: int) -> list[dict]:
+    """The squads a player has been called up to, alphabetical."""
+    memberships = await SquadMember.filter(prospect_id=prospect_id).prefetch_related(
+        "squad"
+    )
+    rows = [
+        {
+            "id": m.squad.id,
+            "name": m.squad.name,
+            "category": m.squad.category,
+            "title": squad_title(m.squad),
+        }
+        for m in memberships
+    ]
+    rows.sort(key=_squad_sort_key)
+    return rows
+
+
+async def squad_options_for(prospect_id: int) -> list[dict]:
+    """Squads this player is not in yet — what the profile can add him to."""
+    taken = set(
+        await SquadMember.filter(prospect_id=prospect_id).values_list(
+            "squad_id", flat=True
+        )
+    )
+    rows = [
+        {"id": s.id, "name": s.name, "category": s.category, "title": squad_title(s)}
+        for s in await Squad.all()
+        if s.id not in taken
+    ]
+    rows.sort(key=_squad_sort_key)
+    return rows
+
+
+async def squad_taken(
+    chat_id: int, normalized_name: str, category: str | None, *, exclude_id: int | None = None
+) -> Squad | None:
+    """The squad already keyed to (chat, name, category), if any.
+
+    Enforced here rather than by a UNIQUE index because a NULL category — a
+    squad with no age group — would slip past one in Postgres."""
+    query = Squad.filter(agent_chat_id=chat_id, normalized_name=normalized_name)
+    query = query.filter(category__isnull=True) if not category else query.filter(
+        category=category
+    )
+    if exclude_id is not None:
+        query = query.exclude(id=exclude_id)
+    return await query.first()

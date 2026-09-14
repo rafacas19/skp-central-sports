@@ -5,6 +5,7 @@ Drives the real FastAPI app over httpx's ASGITransport (no lifespan — the
 settings are injected per-test via the `dashboard_auth` fixture.
 """
 
+import io
 from datetime import date, datetime, timedelta, timezone
 
 import httpx
@@ -13,7 +14,7 @@ import pytest_asyncio
 
 from scouting_bot.config import settings
 from scouting_bot.dashboard import auth, queries
-from scouting_bot.models import Observation, Prospect, Session
+from scouting_bot.models import Observation, Prospect, Session, Squad, SquadMember
 
 PASSWORD = "prueba-scouting"
 
@@ -1478,3 +1479,273 @@ async def test_players_list_shows_and_filters_by_contact(client, dashboard_auth)
 
     # A status nobody is in is not offered as a filter.
     assert 'value="Acuerdo"' not in text
+
+
+# ── Selecciones (national squads) ────────────────────────────────────────
+async def _create_squad(
+    client: httpx.AsyncClient, nombre: str = "Selección Colombia U15", categoria: str = ""
+) -> httpx.Response:
+    csrf = _csrf((await client.get("/dashboard/selecciones")).text)
+    return await client.post(
+        "/dashboard/selecciones",
+        data={auth.CSRF_FIELD: csrf, "nombre": nombre, "categoria": categoria},
+    )
+
+
+async def _call_up(client: httpx.AsyncClient, squad_id: int, pid: int) -> httpx.Response:
+    csrf = _csrf((await client.get(f"/dashboard/selecciones/{squad_id}")).text)
+    return await client.post(
+        f"/dashboard/selecciones/{squad_id}/jugadores",
+        data={auth.CSRF_FIELD: csrf, "jugador": str(pid)},
+    )
+
+
+async def test_selecciones_is_in_the_nav(client, dashboard_auth):
+    await _seed()
+    await _login(client)
+    text = (await client.get("/dashboard")).text
+    assert 'href="/dashboard/selecciones"' in text
+
+
+async def test_squad_created_from_a_typed_name_splits_the_category(client, dashboard_auth):
+    await _seed()
+    await _login(client)
+
+    resp = await _create_squad(client)
+
+    assert resp.status_code == 303
+    squad = await Squad.all().first()
+    assert (squad.name, squad.category) == ("Colombia", "Sub-15")
+    assert resp.headers["location"] == f"/dashboard/selecciones/{squad.id}"
+
+
+async def test_squad_category_can_be_typed_by_hand(client, dashboard_auth):
+    await _seed()
+    await _login(client)
+
+    await _create_squad(client, nombre="Colombia", categoria="Mayores")
+
+    squad = await Squad.all().first()
+    assert (squad.name, squad.category) == ("Colombia", "Mayores")
+
+
+async def test_the_same_squad_twice_is_refused(client, dashboard_auth):
+    await _seed()
+    await _login(client)
+    await _create_squad(client)
+
+    resp = await _create_squad(client, nombre="Colombia Sub-15")
+
+    assert resp.status_code == 400
+    assert "Ya existe una selección" in resp.text
+    assert await Squad.all().count() == 1
+
+
+async def test_the_same_name_in_another_category_is_a_different_squad(client, dashboard_auth):
+    await _seed()
+    await _login(client)
+    await _create_squad(client)
+
+    resp = await _create_squad(client, nombre="Colombia Sub-17")
+
+    assert resp.status_code == 303
+    assert await Squad.all().count() == 2
+
+
+async def test_a_squad_needs_a_name(client, dashboard_auth):
+    await _seed()
+    await _login(client)
+
+    resp = await _create_squad(client, nombre="   ")
+
+    assert resp.status_code == 400
+    assert "obligatorio" in resp.text
+    assert await Squad.all().count() == 0
+
+
+async def test_squad_index_lists_the_squad_with_its_player_count(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    await _create_squad(client)
+    squad = await Squad.all().first()
+    await _call_up(client, squad.id, seeded["ferrin"].id)
+
+    text = (await client.get("/dashboard/selecciones")).text
+
+    assert "Colombia" in text and "Sub-15" in text
+    assert f'href="/dashboard/selecciones/{squad.id}"' in text
+    assert ">1<" in text  # the player count cell
+
+
+async def test_calling_a_player_up_keeps_his_club(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    await _create_squad(client)
+    squad = await Squad.all().first()
+
+    resp = await _call_up(client, squad.id, seeded["ferrin"].id)
+
+    assert resp.status_code == 303
+    assert await SquadMember.filter(squad_id=squad.id).count() == 1
+    player = await Prospect.get(id=seeded["ferrin"].id)
+    assert (player.team, player.normalized_team) == ("Millonarios", "millonarios")
+
+
+async def test_calling_the_same_player_up_twice_says_so(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    await _create_squad(client)
+    squad = await Squad.all().first()
+    await _call_up(client, squad.id, seeded["ferrin"].id)
+
+    resp = await _call_up(client, squad.id, seeded["ferrin"].id)
+
+    assert resp.headers["location"].endswith("?aviso=repetido")
+    assert await SquadMember.filter(squad_id=squad.id).count() == 1
+    assert "ya estaba en la lista" in (await client.get(resp.headers["location"])).text
+
+
+async def test_squad_page_shows_the_clients_columns_and_the_player(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    await _create_squad(client)
+    squad = await Squad.all().first()
+    await _call_up(client, squad.id, seeded["ferrin"].id)
+
+    text = (await client.get(f"/dashboard/selecciones/{squad.id}")).text
+
+    for header in ("NOMBRE", "APELLIDO", "EDAD", "PIERNA HABIL", "SEGUIMIENTO"):
+        assert header in text
+    assert "Jordan" in text and "Ferrin" in text
+    assert "Millonarios" in text
+    assert "A FIRMAR" in text  # rating 5 → the client's own wording, uppercased
+    assert "Sin Agente" in text
+
+
+async def test_squad_excel_downloads_with_the_players(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    await _create_squad(client)
+    squad = await Squad.all().first()
+    await _call_up(client, squad.id, seeded["ferrin"].id)
+
+    resp = await client.get(f"/dashboard/selecciones/{squad.id}/excel")
+
+    assert resp.status_code == 200
+    assert "spreadsheetml.sheet" in resp.headers["content-type"]
+    assert "attachment" in resp.headers["content-disposition"]
+
+    from openpyxl import load_workbook
+
+    ws = load_workbook(io.BytesIO(resp.content)).active
+    rows = [list(r) for r in ws.iter_rows(values_only=True)]
+    assert rows[0][0] == "NOMBRE"
+    assert rows[1][:2] == ["Jordan", "Ferrin"]
+
+
+async def test_removing_a_player_keeps_the_player(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    await _create_squad(client)
+    squad = await Squad.all().first()
+    pid = seeded["ferrin"].id
+    await _call_up(client, squad.id, pid)
+    csrf = _csrf((await client.get(f"/dashboard/selecciones/{squad.id}")).text)
+
+    resp = await client.post(
+        f"/dashboard/selecciones/{squad.id}/jugadores/{pid}/quitar",
+        data={auth.CSRF_FIELD: csrf},
+    )
+
+    assert resp.status_code == 303
+    assert await SquadMember.all().count() == 0
+    assert await Prospect.filter(id=pid).exists()
+
+
+async def test_deleting_a_squad_keeps_the_players_and_their_notes(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    await _create_squad(client)
+    squad = await Squad.all().first()
+    pid = seeded["ferrin"].id
+    await _call_up(client, squad.id, pid)
+    before = await Observation.filter(prospect_id=pid).count()
+    csrf = _csrf((await client.get(f"/dashboard/selecciones/{squad.id}")).text)
+
+    resp = await client.post(
+        f"/dashboard/selecciones/{squad.id}/eliminar", data={auth.CSRF_FIELD: csrf}
+    )
+
+    assert resp.status_code == 303
+    assert await Squad.all().count() == 0
+    assert await SquadMember.all().count() == 0
+    assert await Prospect.filter(id=pid).exists()
+    assert await Observation.filter(prospect_id=pid).count() == before
+
+
+async def test_profile_shows_the_call_up_and_can_add_one(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    await _create_squad(client)
+    squad = await Squad.all().first()
+    pid = seeded["ferrin"].id
+
+    page = (await client.get(f"/dashboard/jugadores/{pid}")).text
+    assert "Selecciones" in page
+    assert 'name="seleccion"' in page  # the add control, nothing joined yet
+
+    csrf = _csrf(page)
+    resp = await client.post(
+        f"/dashboard/jugadores/{pid}/seleccion",
+        data={auth.CSRF_FIELD: csrf, "seleccion": str(squad.id)},
+    )
+    assert resp.status_code == 303
+
+    page = (await client.get(f"/dashboard/jugadores/{pid}")).text
+    assert f'href="/dashboard/selecciones/{squad.id}"' in page
+    assert "Colombia Sub-15" in page
+
+
+async def test_squad_routes_require_a_session(client, dashboard_auth):
+    await _seed()
+    resp = await client.get("/dashboard/selecciones")
+    assert resp.status_code == 303  # bounced to the login page
+
+
+async def test_calling_up_requires_csrf(client, dashboard_auth):
+    seeded = await _seed()
+    await _login(client)
+    await _create_squad(client)
+    squad = await Squad.all().first()
+
+    resp = await client.post(
+        f"/dashboard/selecciones/{squad.id}/jugadores",
+        data={auth.CSRF_FIELD: "0" * 20, "jugador": str(seeded["ferrin"].id)},
+    )
+
+    assert resp.status_code == 400
+    assert await SquadMember.all().count() == 0
+
+
+async def test_a_missing_squad_is_a_404(client, dashboard_auth):
+    await _seed()
+    await _login(client)
+    assert (await client.get("/dashboard/selecciones/999")).status_code == 404
+
+
+async def test_a_two_role_player_matches_either_role(client, dashboard_auth):
+    """Call-up lists write "Defensa central, Mediocentro defensivo" in one field;
+    such a player must not fall out of every filtered view."""
+    await _seed()
+    await Prospect.create(
+        agent_chat_id=1, name="Ángel López", normalized_name="angel lopez",
+        team="Alianza", normalized_team="alianza",
+        position="Defensa central, Mediocentro defensivo",
+    )
+    await _login(client)
+
+    as_defender = await client.get("/dashboard/jugadores?posicion=Defensa central")
+    as_midfield = await client.get("/dashboard/jugadores?posicion=Centrocampista")
+
+    assert "Ángel López" in as_defender.text
+    assert "Ángel López" in as_midfield.text

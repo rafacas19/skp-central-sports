@@ -2,16 +2,21 @@
 
 import csv
 import io
+from pathlib import Path
 
 import pytest
 
+from scouting_bot.models import Prospect
 from scouting_bot.report import (
     _CSV_COLUMNS,
     _XLSX_COLUMNS,
+    SQUAD_COLUMNS,
     build_csv,
     build_player_report,
+    build_squad_workbook,
     build_summary,
     build_workbook,
+    squad_row,
 )
 
 
@@ -176,3 +181,95 @@ async def test_summary_groups_by_player(service):
     summary = build_summary(ended)
     assert "Castro" in summary
     assert "2 obs" in summary  # two observations rolled up for Castro
+
+
+# ── Squad list (.xlsx in the client's own layout) ────────────────────────
+_CLIENT_FILE = Path(__file__).resolve().parents[1] / "docs" / "Selección Colombia U15.xlsx"
+
+
+def _squad_sheet(content: bytes) -> list[list]:
+    from openpyxl import load_workbook
+
+    ws = load_workbook(io.BytesIO(content)).active
+    return [list(r) for r in ws.iter_rows(values_only=True)]
+
+
+def _squad_player(**kw) -> Prospect:
+    """An unsaved prospect — the workbook builder is a pure function."""
+    base = dict(
+        name="Juan De La Rosa",
+        team="Junior FC",
+        position="Defensa central",
+        preferred_foot="derecho",
+        birth_year=2011,
+        agent_name="Base Sports",
+        latest_rating=4,
+    )
+    base.update(kw)
+    return Prospect(**base)
+
+
+def test_squad_columns_are_the_clients_headers():
+    assert SQUAD_COLUMNS == [
+        "NOMBRE", "APELLIDO", "EDAD", "POSICIÓN", "PIERNA HABIL",
+        "CLUB", "AGENTE", "VALORACIÓN", "SEGUIMIENTO",
+    ]
+    assert _squad_sheet(build_squad_workbook("Colombia Sub-15", []))[0] == SQUAD_COLUMNS
+
+
+@pytest.mark.skipif(
+    not _CLIENT_FILE.exists(),
+    reason="The client's file holds real player data and is not committed.",
+)
+def test_squad_headers_match_the_clients_own_file():
+    """The column order is the contract with the client — read it from theirs."""
+    from openpyxl import load_workbook
+
+    theirs = list(next(load_workbook(_CLIENT_FILE).active.iter_rows(values_only=True)))
+    assert SQUAD_COLUMNS == theirs
+
+
+def test_squad_row_follows_the_clients_conventions():
+    assert squad_row(_squad_player()) == [
+        "Juan", "De La Rosa", 2011, "Defensa central", "Derecho",
+        "Junior FC", "Base Sports", 4, "MUY INTERESANTE",
+    ]
+
+
+def test_squad_row_marks_an_unrepresented_player():
+    assert squad_row(_squad_player(agent_name=None))[6] == "Sin Agente"
+
+
+def test_squad_row_prefers_an_explicit_decision_over_the_rating():
+    row = squad_row(_squad_player(latest_rating=2, decision_status="Muy interesante"))
+    assert row[7:] == [2, "MUY INTERESANTE"]
+
+
+def test_squad_row_falls_back_to_a_stated_age():
+    assert squad_row(_squad_player(birth_year=None, age=14))[2] == 14
+
+
+def test_squad_row_of_an_empty_profile_has_no_holes():
+    row = squad_row(Prospect(name="Yepes"))
+    assert row == ["Yepes", "", "", "", "", "", "Sin Agente", "", ""]
+
+
+def test_squad_row_keeps_a_half_step_rating():
+    assert squad_row(_squad_player(latest_rating=3.5))[7] == 3.5
+
+
+def test_squad_workbook_writes_one_row_per_player():
+    rows = _squad_sheet(
+        build_squad_workbook("Colombia Sub-15", [_squad_player(), _squad_player(name="Luis Moreno")])
+    )
+    assert len(rows) == 3
+    assert [r[0] for r in rows[1:]] == ["Juan", "Luis"]
+
+
+def test_squad_sheet_name_is_sanitized_and_capped():
+    from openpyxl import load_workbook
+
+    content = build_squad_workbook("Colombia/Sub-15 " + "x" * 40, [])
+    title = load_workbook(io.BytesIO(content)).sheetnames[0]
+    assert "/" not in title
+    assert len(title) <= 31

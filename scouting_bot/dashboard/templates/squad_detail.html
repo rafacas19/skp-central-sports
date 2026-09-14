@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — Panel de Scouting{% endblock %}
+{% block content %}
+<p><a class="back" href="/dashboard/selecciones">← Selecciones</a></p>
+<div class="page-head">
+  <h1>{{ name }}
+    {% if category %}<span class="chip">{{ category }}</span>{% endif %}
+  </h1>
+  <a class="button-link primary" href="/dashboard/selecciones/{{ id }}/excel">Descargar Excel</a>
+</div>
+
+{% if aviso == "repetido" %}
+<p class="muted">Ese jugador ya estaba en la lista.</p>
+{% endif %}
+
+{% if players %}
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}<th></th></tr>
+    </thead>
+    <tbody>
+      {% for p in players %}
+      <tr>
+        <td><a href="/dashboard/jugadores/{{ p.id }}">{{ p.cells[0] }}</a></td>
+        {% for cell in p.cells[1:] %}<td>{{ cell }}</td>{% endfor %}
+        <td>
+          <form method="post" action="/dashboard/selecciones/{{ id }}/jugadores/{{ p.id }}/quitar">
+            <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+            <button type="submit" class="chip-button">Quitar</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="muted">La lista está vacía. Convoca abajo a jugadores ya observados.</p>
+{% endif %}
+
+{% if candidates %}
+<form class="form inline-form" method="post" action="/dashboard/selecciones/{{ id }}/jugadores">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <label>Convocar jugador
+    <select name="jugador">
+      {% for c in candidates %}
+      <option value="{{ c.id }}">{{ c.label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Añadir</button>
+</form>
+{% else %}
+<p class="muted">No queda ningún jugador por convocar.</p>
+{% endif %}
+
+<form class="squad-actions" method="post" action="/dashboard/selecciones/{{ id }}/eliminar">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <button type="submit">Eliminar selección</button>
+  <span class="muted">Desaparece la lista; los jugadores siguen en Jugadores con todas sus observaciones.</span>
+</form>
+{% endblock %}

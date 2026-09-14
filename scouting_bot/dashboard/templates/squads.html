@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Selecciones — Panel de Scouting{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Selecciones</h1>
+</div>
+
+<p class="muted">Una selección es una convocatoria, no un club: el jugador conserva
+su equipo y aparece además en la lista que le corresponda.</p>
+
+<form class="form inline-form" method="post" action="/dashboard/selecciones">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <label>Nueva selección
+    <input type="text" name="nombre" value="{{ values.nombre }}"
+           placeholder="Selección Colombia U15" maxlength="140" required>
+  </label>
+  <label>Categoría
+    <input type="text" name="categoria" value="{{ values.categoria }}"
+           placeholder="Se deduce del nombre" maxlength="60">
+  </label>
+  <button type="submit">Crear</button>
+</form>
+{% if error %}<p class="field-error">{{ error }}</p>{% endif %}
+
+{% if squads %}
+<table>
+  <thead>
+    <tr><th>Selección</th><th>Categoría</th><th class="num">Jugadores</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for s in squads %}
+    <tr>
+      <td><a href="/dashboard/selecciones/{{ s.id }}">{{ s.name }}</a></td>
+      <td>{% if s.category %}<span class="chip small">{{ s.category }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="num">{{ s.players }}</td>
+      <td><a href="/dashboard/selecciones/{{ s.id }}/excel">Excel</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Todavía no hay ninguna selección. Crea la primera aquí arriba.</p>
+{% endif %}
+{% endblock %}

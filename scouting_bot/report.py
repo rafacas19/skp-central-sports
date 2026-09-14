@@ -387,6 +387,94 @@ def build_historical_workbook(
     return buf.getvalue()
 
 
+# ── Squad workbook (a "selección" call-up list, the client's own layout) ─────────
+# The client works this list in Excel with these exact columns, in this order —
+# the header row is the contract, so it is asserted against their own file in
+# the tests. Their conventions are kept as they wrote them: EDAD carries the
+# birth year, an unrepresented player reads "Sin Agente", and SEGUIMIENTO is the
+# decision in capitals.
+SQUAD_COLUMNS = [
+    "NOMBRE",
+    "APELLIDO",
+    "EDAD",
+    "POSICIÓN",
+    "PIERNA HABIL",
+    "CLUB",
+    "AGENTE",
+    "VALORACIÓN",
+    "SEGUIMIENTO",
+]
+
+NO_AGENT = "Sin Agente"
+
+# Excel rejects these in a sheet name and caps it at 31 characters.
+_BAD_SHEET_CHARS = set("[]:*?/\\")
+
+
+def _split_name(name: str | None) -> tuple[str, str]:
+    """'Juan De La Rosa' → ('Juan', 'De La Rosa'). First token is the given name,
+    everything after it the surname — how the client's sheet is written."""
+    parts = (name or "").split()
+    if not parts:
+        return "", ""
+    return parts[0], " ".join(parts[1:])
+
+
+def _sheet_title(title: str) -> str:
+    """A safe Excel sheet name: forbidden characters dropped, 31-char cap."""
+    cleaned = "".join(c for c in (title or "") if c not in _BAD_SHEET_CHARS).strip()
+    return (cleaned or "Selección")[:31]
+
+
+def squad_row(p: Prospect) -> list:
+    """One squad-list row for a player, in `SQUAD_COLUMNS` order.
+
+    The dashboard table and the .xlsx both render this, so what the client sees
+    on screen and what they download can't drift. Values are the player's own —
+    a call-up carries no separate rating or number of its own.
+    """
+    first, last = _split_name(p.name)
+    rating = p.latest_rating
+    decision = p.decision_status or decision_for_rating(rating) or ""
+    return [
+        first,
+        last,
+        # Their EDAD column holds a birth year (2011). A player with only a
+        # stated age falls back to it — 14 and 2011 are never confusable.
+        p.birth_year or p.age or "",
+        p.position or "",
+        (p.preferred_foot or "").capitalize(),
+        p.team or "",
+        p.agent_name or NO_AGENT,
+        (int(rating) if rating == int(rating) else rating) if rating is not None else "",
+        decision.upper(),
+    ]
+
+
+def build_squad_workbook(title: str, players: list[Prospect]) -> bytes:
+    """The squad list as the client's .xlsx: one sheet, one row per player.
+
+    `title` is the squad as it reads on screen ("Colombia Sub-15"). An empty
+    squad still produces the header row, so the file is always openable."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = _sheet_title(title)
+    ws.append(SQUAD_COLUMNS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for p in players:
+        ws.append(squad_row(p))
+    for i, _ in enumerate(SQUAD_COLUMNS, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = 22
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 # ── Markdown match report (REST API) ────────────────────────────────────────────
 def build_markdown(session: Session) -> str:
     """Full markdown match report (served by the REST /report endpoint)."""
