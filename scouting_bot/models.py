@@ -210,6 +210,7 @@ class Prospect(Model):
     created_at = fields.DatetimeField(auto_now_add=True)
 
     observations: fields.ReverseRelation["Observation"]
+    squad_memberships: fields.ReverseRelation["SquadMember"]
 
     class Meta:
         table = "prospects"
@@ -246,3 +247,58 @@ class Observation(Model):
 
     class Meta:
         table = "observations"
+
+
+class Squad(Model):
+    """A national-team call-up list ("selección"), owned by one scout.
+
+    A squad is deliberately *not* a team. A player's `team` stays his club and
+    being in "Colombia Sub-15" is a membership beside it — writing the national
+    team into `team` would fork one player into two prospects, since identity
+    keys on (agent_chat_id, normalized_name, normalized_team).
+
+    `name` is the entity ("Colombia") and `category` the age group ("Sub-15"),
+    split off the typed name by `categories.split_category`, so "Selección
+    Colombia U15" and "colombia sub 15" reach the same squad. Uniqueness of
+    (chat, name, category) is enforced in the dashboard instead of by a
+    constraint: a NULL category would defeat a UNIQUE index in Postgres.
+    """
+
+    id = fields.IntField(primary_key=True)
+    agent_chat_id = fields.BigIntField()
+    name = fields.TextField()
+    normalized_name = fields.TextField()  # taxonomy.normalize_name(name)
+    category = fields.TextField(null=True)  # "Sub-15", may be absent
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    members: fields.ReverseRelation["SquadMember"]
+
+    class Meta:
+        table = "squads"
+        indexes = (("agent_chat_id", "normalized_name"),)
+
+    def __str__(self) -> str:
+        return f"Squad({self.id}: {self.name} {self.category or ''})".strip()
+
+
+class SquadMember(Model):
+    """One player's place in one squad.
+
+    Membership is a row, not a column, so a player can be called up by several
+    squads over time (Sub-15 this year, Sub-17 the next) and the earlier lists
+    stay intact. It carries no scouting data of its own: every column the client
+    reads off a squad list already lives on the prospect.
+    """
+
+    id = fields.IntField(primary_key=True)
+    squad: fields.ForeignKeyRelation[Squad] = fields.ForeignKeyField(
+        "models.Squad", related_name="members", on_delete=fields.CASCADE
+    )
+    prospect: fields.ForeignKeyRelation[Prospect] = fields.ForeignKeyField(
+        "models.Prospect", related_name="squad_memberships", on_delete=fields.CASCADE
+    )
+    added_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "squad_members"
+        unique_together = (("squad", "prospect"),)

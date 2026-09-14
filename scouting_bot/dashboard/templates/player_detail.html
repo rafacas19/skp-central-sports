@@ -42,6 +42,34 @@
   <div><span class="meta-label">Observaciones</span>{{ player.observations }}</div>
 </section>
 
+{% if squads or squad_options %}
+<section class="squads">
+  <h2>Selecciones</h2>
+  {% if squads %}
+  <div class="chips">
+    {% for s in squads %}
+    <a class="chip" href="/dashboard/selecciones/{{ s.id }}">{{ s.title }}</a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">Sin convocatorias. Su club sigue siendo {{ player.team or "el que tenga registrado" }}.</p>
+  {% endif %}
+  {% if squad_options %}
+  <form class="form inline-form" method="post" action="/dashboard/jugadores/{{ player.id }}/seleccion">
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+    <label>Convocar a
+      <select name="seleccion">
+        {% for s in squad_options %}
+        <option value="{{ s.id }}">{{ s.title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Añadir</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if summary.text or summary.failed %}
 <section>
   <h2>Resumen IA</h2>

@@ -10,3 +10,5 @@ venv/
 .DS_Store
 # Generated share artifact — regenerate from the guide HTML via headless Chrome.
 docs/*.pdf
+# Client-supplied squad lists — real player data, never committed.
+docs/*.xlsx

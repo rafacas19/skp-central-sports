@@ -21,6 +21,7 @@ from .models import (
     Prospect,
     ScoutProfile,
     Session,
+    SquadMember,
 )
 from .taxonomy import name_matches, normalize_identity, normalize_name
 
@@ -285,6 +286,18 @@ class Storage:
             }
             if backfill:
                 await Prospect.filter(id=keep_id).update(**backfill)
+        # Squad call-ups follow the survivor. A membership for a squad he is
+        # already in is dropped rather than moved: the unique (squad, prospect)
+        # pair would reject the update, and leaving it behind would hand it to
+        # the FK cascade when the loser is deleted.
+        shared = await SquadMember.filter(prospect_id=keep_id).values_list(
+            "squad_id", flat=True
+        )
+        if shared:
+            await SquadMember.filter(
+                prospect_id=drop_id, squad_id__in=list(shared)
+            ).delete()
+        await SquadMember.filter(prospect_id=drop_id).update(prospect_id=keep_id)
         await Observation.filter(prospect_id=drop_id).update(prospect_id=keep_id)
         await Prospect.filter(id=drop_id).delete()
 

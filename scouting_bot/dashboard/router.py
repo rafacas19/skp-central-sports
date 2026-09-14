@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -26,9 +27,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..config import settings
-from ..models import CONTACT_NONE, CONTACT_STATUSES, FEET, Prospect
+from ..models import CONTACT_NONE, CONTACT_STATUSES, FEET, Prospect, Squad, SquadMember
 from ..positions import ROLES
+from ..report import build_squad_workbook
 from ..storage import Storage
+from ..taxonomy import normalize_name
 from . import auth, forms, photos, queries, summaries
 
 router = APIRouter(prefix="/dashboard", include_in_schema=False)
@@ -44,6 +47,7 @@ NAV = [
     ("Resumen", "/dashboard"),
     ("Partidos", "/dashboard/partidos"),
     ("Jugadores", "/dashboard/jugadores"),
+    ("Selecciones", "/dashboard/selecciones"),
     ("Decisiones", "/dashboard/decisiones"),
 ]
 
@@ -617,4 +621,182 @@ async def player_merge_submit(
     await Storage().merge_prospects(keep.id, drop.id)
     return RedirectResponse(
         f"/dashboard/jugadores/{keep.id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+# ── Selecciones (national squads) ────────────────────────────────────────
+# A squad is a call-up list, not a team: the players in it keep their club in
+# `team`, so nobody is duplicated into a "club" copy and a "national" copy.
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+async def _squads_context(nombre: str = "", categoria: str = "", error: str | None = None) -> dict:
+    return {
+        "squads": await queries.list_squads(),
+        "values": {"nombre": nombre, "categoria": categoria},
+        "error": error,
+    }
+
+
+def _squad_missing(request: Request):
+    return _render(
+        request, "not_found.html",
+        {"message": "Esa selección no existe.", "back": "/dashboard/selecciones"},
+        status_code=status.HTTP_404_NOT_FOUND,
+    )
+
+
+@router.get(
+    "/selecciones",
+    response_class=HTMLResponse,
+    dependencies=[Depends(auth.require_dashboard)],
+)
+async def squads_page(request: Request):
+    return _render(request, "squads.html", await _squads_context())
+
+
+@router.post("/selecciones", dependencies=[Depends(auth.require_dashboard)])
+async def squad_create(
+    request: Request,
+    nombre: str = Form(default=""),
+    categoria: str = Form(default=""),
+    csrf: str = Form(default=""),
+):
+    """Create a squad from a typed name.
+
+    The age group is derived from the name the same way club names are split
+    ("Selección Colombia U15" → Colombia / Sub-15). The category field overrides
+    it, so a group the parser doesn't know can still be spelled out."""
+    auth.require_csrf(csrf)
+    name, derived = queries.squad_name_and_category(nombre)
+    category = categoria.strip() or derived or None
+    error = None
+    if not name:
+        error = "El nombre de la selección es obligatorio."
+    elif len(name) > 120:
+        error = "El nombre no puede pasar de 120 caracteres."
+    elif category and len(category) > 60:
+        error = "La categoría no puede pasar de 60 caracteres."
+    chat_id = await queries.scout_chat_id()
+    if error is None and await queries.squad_taken(chat_id, normalize_name(name), category):
+        error = "Ya existe una selección con ese nombre y esa categoría."
+    if error:
+        return _render(
+            request, "squads.html",
+            await _squads_context(nombre, categoria, error),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    squad = await Squad.create(
+        agent_chat_id=chat_id,
+        name=name,
+        normalized_name=normalize_name(name),
+        category=category,
+    )
+    return RedirectResponse(
+        f"/dashboard/selecciones/{squad.id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.get(
+    "/selecciones/{squad_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(auth.require_dashboard)],
+)
+async def squad_page(request: Request, squad_id: int, aviso: str | None = None):
+    data = await queries.squad_detail(squad_id)
+    if data is None:
+        return _squad_missing(request)
+    return _render(request, "squad_detail.html", {**data, "aviso": aviso})
+
+
+@router.get("/selecciones/{squad_id}/excel", dependencies=[Depends(auth.require_dashboard)])
+async def squad_excel(squad_id: int):
+    """The squad list as the .xlsx the client already works in."""
+    squad = await Squad.get_or_none(id=squad_id)
+    if squad is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    title = queries.squad_title(squad)
+    payload = build_squad_workbook(title, await queries.squad_players(squad_id))
+    # The name carries accents, so only the RFC 5987 form is sent.
+    disposition = f"attachment; filename*=UTF-8''{quote(title + '.xlsx')}"
+    return Response(payload, media_type=_XLSX_MEDIA, headers={"Content-Disposition": disposition})
+
+
+@router.post(
+    "/selecciones/{squad_id}/jugadores", dependencies=[Depends(auth.require_dashboard)]
+)
+async def squad_add_player(
+    request: Request,
+    squad_id: int,
+    jugador: int = Form(...),
+    csrf: str = Form(default=""),
+):
+    auth.require_csrf(csrf)
+    squad = await Squad.get_or_none(id=squad_id)
+    player = await Prospect.get_or_none(id=jugador)
+    if squad is None or player is None:
+        return _squad_missing(request)
+    # Already called up: say so instead of failing on the unique pair.
+    if await SquadMember.filter(squad_id=squad_id, prospect_id=jugador).exists():
+        return RedirectResponse(
+            f"/dashboard/selecciones/{squad_id}?aviso=repetido",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    await SquadMember.create(squad_id=squad_id, prospect_id=jugador)
+    return RedirectResponse(
+        f"/dashboard/selecciones/{squad_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.post(
+    "/selecciones/{squad_id}/jugadores/{prospect_id}/quitar",
+    dependencies=[Depends(auth.require_dashboard)],
+)
+async def squad_remove_player(
+    request: Request, squad_id: int, prospect_id: int, csrf: str = Form(default="")
+):
+    """Take a player off the list. The player himself is untouched."""
+    auth.require_csrf(csrf)
+    await SquadMember.filter(squad_id=squad_id, prospect_id=prospect_id).delete()
+    return RedirectResponse(
+        f"/dashboard/selecciones/{squad_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.post(
+    "/selecciones/{squad_id}/eliminar", dependencies=[Depends(auth.require_dashboard)]
+)
+async def squad_delete(request: Request, squad_id: int, csrf: str = Form(default="")):
+    """Delete the list. Its players keep every observation and stay in Jugadores."""
+    auth.require_csrf(csrf)
+    await Squad.filter(id=squad_id).delete()  # memberships go with it (CASCADE)
+    return RedirectResponse(
+        "/dashboard/selecciones", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.post(
+    "/jugadores/{prospect_id}/seleccion", dependencies=[Depends(auth.require_dashboard)]
+)
+async def player_squad_add(
+    request: Request,
+    prospect_id: int,
+    seleccion: int = Form(...),
+    csrf: str = Form(default=""),
+):
+    """Call a player up from his own profile."""
+    auth.require_csrf(csrf)
+    player = await Prospect.get_or_none(id=prospect_id)
+    squad = await Squad.get_or_none(id=seleccion)
+    if player is None or squad is None:
+        return _render(
+            request, "not_found.html",
+            {"message": "No se pudo añadir: el jugador o la selección no existe.",
+             "back": "/dashboard/jugadores"},
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    if not await SquadMember.filter(squad_id=seleccion, prospect_id=prospect_id).exists():
+        await SquadMember.create(squad_id=seleccion, prospect_id=prospect_id)
+    return RedirectResponse(
+        f"/dashboard/jugadores/{prospect_id}", status_code=status.HTTP_303_SEE_OTHER
     )
