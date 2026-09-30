@@ -23,10 +23,17 @@ SESSION_ENDED = "ended"
 HOME = "home"
 AWAY = "away"
 
+# Where a match was created. Bot matches drive the Telegram flow (the active
+# match, the auto-nudge); web matches are opened and closed on the dashboard and
+# must never be picked up by the bot as the match a note belongs to.
+ORIGIN_BOT = "bot"
+ORIGIN_WEB = "web"
+
 # Observation source (how the note arrived).
 SOURCE_TEXT = "text"
 SOURCE_VOICE = "voice"
 SOURCE_PHOTO = "photo"
+SOURCE_WEB = "web"  # a score sheet filled in on the dashboard
 
 # Player decision statuses (manual /decision workflow + report buttons).
 DECISION_PENDING = "Pendiente"
@@ -117,6 +124,10 @@ class Session(Model):
     away_team = fields.TextField()
     label = fields.TextField(null=True)  # free-text competition/date label
     state = fields.CharField(max_length=16, default=SESSION_ACTIVE)
+    origin = fields.CharField(max_length=8, default=ORIGIN_BOT)  # ORIGIN_BOT | ORIGIN_WEB
+    # Lineup formation per side ("4-3-3"), set from the dashboard lineup editor.
+    home_formation = fields.CharField(max_length=8, null=True)
+    away_formation = fields.CharField(max_length=8, null=True)
     # Optional match metadata (parsed from `/nuevo … | campo=valor`).
     scout_name = fields.TextField(null=True)
     competition = fields.TextField(null=True)
@@ -138,6 +149,8 @@ class Session(Model):
     ended_at = fields.DatetimeField(null=True)
 
     observations: fields.ReverseRelation["Observation"]
+    evaluations: fields.ReverseRelation["Evaluation"]
+    lineup: fields.ReverseRelation["MatchPlayer"]
 
     class Meta:
         table = "sessions"
@@ -201,6 +214,7 @@ class Prospect(Model):
     contact_notes = fields.TextField(null=True)
     is_temporary = fields.BooleanField(default=False)
     photo_file_id = fields.TextField(null=True)  # Telegram file_id (MVP storage)
+    video_url = fields.TextField(null=True)  # highlights link (YouTube, Drive…)
     notes = fields.TextField(null=True)
     # Cached dashboard AI summary. The obs-count watermark marks which state it
     # was generated from; when it drifts, the dashboard refreshes in the
@@ -211,6 +225,10 @@ class Prospect(Model):
 
     observations: fields.ReverseRelation["Observation"]
     squad_memberships: fields.ReverseRelation["SquadMember"]
+    evaluations: fields.ReverseRelation["Evaluation"]
+    lineups: fields.ReverseRelation["MatchPlayer"]
+    profile_reports: fields.ReverseRelation["ProfileReport"]
+    web_photo: fields.BackwardOneToOneRelation["ProspectPhoto"]
 
     class Meta:
         table = "prospects"
@@ -302,3 +320,115 @@ class SquadMember(Model):
     class Meta:
         table = "squad_members"
         unique_together = (("squad", "prospect"),)
+
+
+class Evaluation(Model):
+    """One player's score sheet for one match, filled in on the dashboard.
+
+    `profile` names the position profile (profiles.PROFILES) the scores belong
+    to; `scores` maps its criterion codes to whole 1–5 scores ({"1.1": 4, …}),
+    always read and written as a set, so it is a JSON document rather than one
+    row per criterion. A player with no profile (a goalkeeper, until the client
+    sends that sheet) is rated with a single `rating` and no scores.
+
+    `rating` is the match rating the sheet stands for — the mean of its scores,
+    or the single rating — and is mirrored onto `observation`, an ordinary rated
+    Observation, so the rating history, the decision and every export read a
+    web score exactly like a rating captured by the bot.
+    """
+
+    id = fields.IntField(primary_key=True)
+    session: fields.ForeignKeyRelation[Session] = fields.ForeignKeyField(
+        "models.Session", related_name="evaluations", on_delete=fields.CASCADE
+    )
+    prospect: fields.ForeignKeyRelation[Prospect] = fields.ForeignKeyField(
+        "models.Prospect", related_name="evaluations", on_delete=fields.CASCADE
+    )
+    profile = fields.CharField(max_length=32, null=True)  # profiles key
+    scores = fields.JSONField(default=dict)
+    build_ok = fields.BooleanField(null=True)  # contextura as the profile asks
+    height_ok = fields.BooleanField(null=True)  # estatura as the profile asks
+    rating = fields.FloatField(null=True)
+    note = fields.TextField(null=True)
+    observation: fields.ForeignKeyNullableRelation[Observation] = fields.ForeignKeyField(
+        "models.Observation", related_name="evaluations", null=True,
+        on_delete=fields.SET_NULL,
+    )
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "evaluations"
+        unique_together = (("session", "prospect"),)
+
+
+class MatchPlayer(Model):
+    """One player in one match's lineup, entered on the dashboard.
+
+    `slot` is the index into the side's formation (formations.FORMATIONS); a
+    NULL slot is a substitute on the bench. `shirt_number` is the dorsal worn in
+    this match, which can differ from the player's habitual one.
+    """
+
+    id = fields.IntField(primary_key=True)
+    session: fields.ForeignKeyRelation[Session] = fields.ForeignKeyField(
+        "models.Session", related_name="lineup", on_delete=fields.CASCADE
+    )
+    prospect: fields.ForeignKeyRelation[Prospect] = fields.ForeignKeyField(
+        "models.Prospect", related_name="lineups", on_delete=fields.CASCADE
+    )
+    side = fields.CharField(max_length=8)  # HOME | AWAY
+    slot = fields.IntField(null=True)
+    shirt_number = fields.IntField(null=True)
+
+    class Meta:
+        table = "match_players"
+        unique_together = (("session", "prospect"),)
+
+
+class ProfileReport(Model):
+    """The written part of a player's profile report, for one profile.
+
+    Claude drafts `summary` and one paragraph per section (`sections`, keyed by
+    section number as a string); the scout can edit them. `watermark`
+    fingerprints the evaluations the text was written from: when it no longer
+    matches, an unedited text is redrafted in the background, while an edited
+    one is left alone and the page offers to regenerate it.
+    """
+
+    id = fields.IntField(primary_key=True)
+    prospect: fields.ForeignKeyRelation[Prospect] = fields.ForeignKeyField(
+        "models.Prospect", related_name="profile_reports", on_delete=fields.CASCADE
+    )
+    profile = fields.CharField(max_length=32)
+    summary = fields.TextField(null=True)
+    sections = fields.JSONField(default=dict)
+    edited = fields.BooleanField(default=False)
+    watermark = fields.TextField(null=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "profile_reports"
+        unique_together = (("prospect", "profile"),)
+
+
+class ProspectPhoto(Model):
+    """A photo uploaded from the dashboard, stored in the database.
+
+    Kept out of `prospects` on purpose: every list page loads prospects in bulk,
+    and a few megabytes of image per row would ride along on each of those
+    queries. The Render disk is wiped on every deploy, so the bytes live in
+    Postgres rather than on the filesystem. When present it is shown instead
+    of the Telegram photo.
+    """
+
+    prospect: fields.OneToOneRelation[Prospect] = fields.OneToOneField(
+        "models.Prospect", related_name="web_photo", on_delete=fields.CASCADE,
+        primary_key=True,
+    )
+    data = fields.BinaryField()
+    mime = fields.CharField(max_length=32)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "prospect_photos"

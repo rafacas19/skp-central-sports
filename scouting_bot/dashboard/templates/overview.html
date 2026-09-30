@@ -45,7 +45,7 @@ aparecerán aquí.</p>
 <section>
   <h2>Últimos partidos</h2>
   {% if recent_sessions %}
-  <table>
+<table class="stack">
     <thead>
       <tr><th>Partido</th><th>Fecha</th><th>Competición</th><th>Jugadores</th><th>Obs.</th><th></th></tr>
     </thead>
@@ -53,11 +53,11 @@ aparecerán aquí.</p>
       {% for s in recent_sessions %}
       <tr>
         <td><a href="/dashboard/partidos/{{ s.id }}">{{ s.home_team }} vs {{ s.away_team }}</a></td>
-        <td>{{ s.date | fecha }}</td>
-        <td>{{ s.competition or "—" }}</td>
-        <td class="num">{{ s.players }}</td>
-        <td class="num">{{ s.observations }}</td>
-        <td>{% if s.is_active %}<span class="badge live">En vivo</span>{% endif %}</td>
+        <td data-label="Fecha">{{ s.date | fecha }}</td>
+        <td data-label="Competición">{{ s.competition or "—" }}</td>
+        <td data-label="Jugadores" class="num">{{ s.players }}</td>
+        <td data-label="Observaciones" class="num">{{ s.observations }}</td>
+        <td data-label="">{% if s.is_active %}<span class="badge live">En vivo</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

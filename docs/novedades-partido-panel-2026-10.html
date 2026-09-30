@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Novedades — Partido en el panel</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color: #1a1a1a; line-height: 1.5; font-size: 11.5pt; margin: 0;
+  }
+  header {
+    border-bottom: 3px solid #1f7a3d; padding-bottom: 10px; margin-bottom: 18px;
+  }
+  h1 { font-size: 22pt; margin: 0 0 4px; color: #14532d; }
+  header .sub { color: #555; font-size: 10.5pt; margin: 0; }
+  h2 {
+    font-size: 14pt; color: #14532d; margin: 22px 0 8px;
+    border-bottom: 1px solid #d8e6dd; padding-bottom: 3px;
+  }
+  h3 { font-size: 12pt; color: #0b3d20; margin: 16px 0 4px; }
+  p { margin: 6px 0; }
+  .lead { color: #333; }
+  code {
+    background: #f0f3f1; border: 1px solid #e0e6e2; border-radius: 4px;
+    padding: 1px 5px; font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 9.8pt; color: #0b3d20;
+  }
+  .ui { font-weight: 700; color: #0b3d20; }
+  ul, ol { margin: 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  .tag {
+    display: inline-block; font-size: 8.5pt; font-weight: 700;
+    padding: 1px 7px; border-radius: 10px; margin-left: 6px; vertical-align: middle;
+  }
+  .tag-new { background: #e7f4ec; color: #1f7a3d; border: 1px solid #b7dcc4; }
+  .tag-chg { background: #fff4e0; color: #b35c00; border: 1px solid #f0d9a8; }
+  table { border-collapse: collapse; margin: 8px 0; font-size: 8.6pt; width: 100%; }
+  th, td { border: 1px solid #d8e6dd; padding: 4px 7px; text-align: left; }
+  th { background: #eaf4ee; color: #14532d; font-size: 8pt; letter-spacing: .02em; }
+  td.name { font-weight: 700; color: #1a1a1a; }
+  .caption { color: #888; font-size: 9pt; margin: 2px 0 0; }
+  .tip {
+    background: #fffbe9; border: 1px solid #f0e2a8; border-left: 3px solid #d9a800;
+    border-radius: 4px; padding: 10px 14px; margin: 12px 0; font-size: 10.5pt;
+  }
+  .tip strong { color: #8a6d00; }
+  .prev {
+    background: #f7f9f8; border: 1px solid #e0e6e2; border-left: 3px solid #9bbfab;
+    border-radius: 4px; padding: 10px 14px; margin: 10px 0; color: #444; font-size: 10.5pt;
+  }
+  footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #ddd; color: #888; font-size: 9pt; }
+  .avoid-break { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚽ Novedades — Partido en el panel</h1>
+  <p class="sub">Panel de Scouting · Octubre de 2026 · Skip Central Sports</p>
+</header>
+
+<p class="lead">Ahora puedes <strong>seguir un partido entero desde el panel</strong>,
+pensado para el <strong>móvil</strong>: crear el partido, ver el campo con los dos equipos
+y puntuar a cada jugador con vuestro perfil por posición. Al final, un
+<strong>informe en PDF</strong> como el de vuestro ejemplo. El bot de Telegram sigue igual.</p>
+
+<h2>Crear un partido <span class="tag tag-new">NUEVO</span></h2>
+<p>En <span class="ui">Partidos</span>, botón <span class="ui">+ Nuevo partido</span>. Tres pasos cortos:</p>
+<ol>
+  <li><strong>Equipos:</strong> local, visitante y fecha. La categoría se separa sola:
+      <code>Santa Fe U17</code> queda como Santa Fe · Sub-17.</li>
+  <li><strong>Sistema:</strong> cómo forma cada equipo (4-3-3, 4-4-2, 4-2-3-1 o 3-5-2).</li>
+  <li><strong>Dorsales y nombres:</strong> todo opcional. Rellena solo los que te interesen
+      o pulsa <span class="ui">Saltar, ver el campo</span>.</li>
+</ol>
+<div class="tip">
+  <strong>No hace falta saber quién juega.</strong> Cada puesto aparece en el campo aunque
+  esté vacío. Tocas el puesto, lo puntúas, y el nombre o el dorsal se añaden después,
+  incluso con el partido ya terminado.
+</div>
+
+<h2>El campo <span class="tag tag-new">NUEVO</span></h2>
+<ul>
+  <li><strong>Toca un jugador para puntuarlo.</strong> Los puntuados llevan un aro amarillo con su nota.</li>
+  <li>Un puesto vacío muestra solo su abreviatura (<em>POR</em>, <em>DFC</em>, <em>LI</em>…).</li>
+  <li>Con el móvil en horizontal, el campo se gira para aprovechar toda la pantalla.</li>
+  <li>En el menú <span class="ui">⋮</span>: <em>Dorsales y nombres</em>, <em>Cambiar sistema</em> y <em>Finalizar partido</em>.</li>
+</ul>
+
+<h2>Puntuar por perfil <span class="tag tag-new">NUEVO</span></h2>
+<p>Cada jugador se puntúa con <strong>vuestra hoja «Perfiles Scout»</strong>: Defensa Central,
+Lateral, Medio Centro, Interior, Extremo y Centro Delantero, con los mismos criterios y
+descripciones. El perfil se elige solo según la posición, y se puede cambiar.</p>
+<ul>
+  <li><strong>Una sección cada vez:</strong> Técnica · Defensa · Ataque · Condición · Mental · Físico,
+      con el avance de cada una (por ejemplo <em>3/5</em>).</li>
+  <li>Cada criterio del <strong>1 al 5</strong>. Toca otra vez la nota para quitarla. Toca el nombre
+      del criterio para leer su descripción.</li>
+  <li><strong>Se guarda solo</strong> con cada toque.</li>
+</ul>
+<div class="avoid-break">
+<table>
+  <thead><tr><th>Ejemplo · Lateral</th><th>Técnica</th><th>T. defensiva</th><th>T. ofensiva</th><th>Condicional</th><th>Mental</th><th>Partido</th></tr></thead>
+  <tbody><tr><td class="name">Media</td><td>3,5</td><td>3,7</td><td>3,2</td><td>3,3</td><td>3,5</td><td><strong>3,46 → Interesante</strong></td></tr></tbody>
+</table>
+<p class="caption">La valoración del partido es la media de todo lo puntuado. De ahí sale la decisión, como siempre.
+Son las cifras de vuestro propio ejemplo.</p>
+</div>
+<div class="prev">
+  <strong>Porteros:</strong> por ahora tienen una valoración única de 1 a 5. En cuanto nos paséis la
+  hoja de perfil de portero, tendrán la suya.
+</div>
+
+<h2>Informe de perfil en PDF <span class="tag tag-new">NUEVO</span></h2>
+<p>En la ficha del jugador, <span class="ui">Informe de perfil</span>: la misma hoja que vuestro ejemplo,
+con <strong>una columna por partido puntuado</strong>, la media de cada sección
+(<em>1. Técnica — 3,5/5</em>) y las observaciones.</p>
+<ul>
+  <li><span class="ui">Generar texto con IA</span> redacta el resumen y un párrafo por sección a partir
+      de las notas. Luego lo puedes editar.</li>
+  <li>Si editas el texto, <strong>nunca se sobrescribe solo</strong>. Si llegan evaluaciones nuevas,
+      el informe te avisa y tú decides si lo regeneras.</li>
+  <li><span class="ui">Descargar PDF</span>: una página, lista para compartir.</li>
+</ul>
+
+<h2>Y de paso <span class="tag tag-chg">MEJORAS</span></h2>
+<ul>
+  <li><strong>Foto y vídeo:</strong> en <span class="ui">Editar</span> jugador puedes subir una foto
+      (JPG, PNG o WEBP, hasta 5 MB) y añadir un enlace de vídeo, que sale en el informe.</li>
+  <li><strong>Todo el panel en el móvil:</strong> el menú se recoge en un botón <span class="ui">Menú</span>,
+      las listas se ven como tarjetas, los filtros se pliegan y los botones tienen el tamaño de un dedo.</li>
+  <li><strong>Dos fichas del mismo jugador:</strong> al fusionarlas, sus puntuaciones pasan a la que se queda.</li>
+</ul>
+
+<div class="prev">
+  <strong>El bot sigue igual.</strong> Un partido creado en el panel no se mezcla nunca con el que tengas
+  abierto en Telegram.
+</div>
+
+<footer>
+  Skip Central Sports · Bot de Scouting · Novedades de octubre de 2026<br>
+  ¿Algo no funciona como esperabas? Cuéntalo y lo revisamos.
+</footer>
+
+</body>
+</html>

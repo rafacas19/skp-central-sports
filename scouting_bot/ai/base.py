@@ -75,3 +75,13 @@ class AIProvider(Protocol):
         observation, rating, source, scout}. Returns prose describing patterns,
         strengths, concerns, and a recommendation."""
         ...
+
+    async def draft_profile_report(self, report: dict) -> dict:
+        """A player's scored profile → the written part of his report (Spanish).
+
+        `report` carries {player, role, profile, matches[{label, date,
+        opponent}], sections[{number, title, average, criteria[{code, name,
+        scores[per match]}]}], build, height, notes[]}. Returns {"summary": str,
+        "sections": {"1": str, …, "5": str}} — one paragraph per section, each
+        closing with "Conclusión: …", as in the client's own report."""
+        ...

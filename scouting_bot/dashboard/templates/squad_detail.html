@@ -15,16 +15,16 @@
 
 {% if players %}
 <div class="table-scroll">
-  <table>
+  <table class="stack">
     <thead>
       <tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}<th></th></tr>
     </thead>
     <tbody>
       {% for p in players %}
       <tr>
-        <td><a href="/dashboard/jugadores/{{ p.id }}">{{ p.cells[0] }}</a></td>
-        {% for cell in p.cells[1:] %}<td>{{ cell }}</td>{% endfor %}
-        <td>
+        <td><a href="/dashboard/jugadores/{{ p.id }}">{{ p.cells[0] }}<span class="stack-only"> {{ p.cells[1] }}</span></a></td>
+        {% for cell in p.cells[1:] %}<td data-label="{{ columns[loop.index] | capitalize }}"{% if loop.first %} class="stack-hide"{% endif %}>{{ cell if cell not in ("", None) else "—" }}</td>{% endfor %}
+        <td class="stack-actions">
           <form method="post" action="/dashboard/selecciones/{{ id }}/jugadores/{{ p.id }}/quitar">
             <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
             <button type="submit" class="chip-button">Quitar</button>

@@ -21,6 +21,7 @@ observaciones pasan a este jugador y se completan los datos que aquí falten.
   <div><span class="meta-label">Se conserva</span>{{ player_line(keep) }}</div>
 </section>
 
+{% if error %}<div class="callout warn"><p class="error"><strong>No se pudo fusionar.</strong> {{ error }}</p></div>{% endif %}
 {% if selected %}
 <form method="post" action="/dashboard/jugadores/{{ keep.id }}/fusionar" class="form">
   <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">

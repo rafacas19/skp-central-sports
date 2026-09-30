@@ -1,8 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Partidos — Panel de Scouting{% endblock %}
 {% block content %}
-<h1>Partidos</h1>
+<div class="page-head">
+  <h1>Partidos</h1>
+  <a class="button-link primary" href="/dashboard/partidos/nuevo">+ Nuevo partido</a>
+</div>
 
+{% set fns = namespace(n=0) %}{% for k, v in filters.items() %}{% if k not in ("any", "orden") and v %}{% set fns.n = fns.n + 1 %}{% endif %}{% endfor %}
+<details class="filters-box" data-filters {% if fns.n %}open{% endif %}>
+  <summary>Filtros{% if fns.n %} <span class="chip small">{{ fns.n }} activo{{ "s" if fns.n != 1 }}</span>{% endif %}</summary>
 <form class="filters" method="get" action="/dashboard/partidos">
   <label>Competición
     <select name="competicion">
@@ -24,9 +30,10 @@
   <button type="submit">Filtrar</button>
   {% if filters.any %}<a class="clear" href="/dashboard/partidos">Limpiar</a>{% endif %}
 </form>
+</details>
 
 {% if matches %}
-<table>
+<table class="stack">
   <thead>
     <tr><th>Partido</th><th>Fecha</th><th>Competición</th><th>Sede</th><th>Ojeador</th><th>Jugadores</th><th>Obs.</th><th></th></tr>
   </thead>
@@ -34,13 +41,13 @@
     {% for m in matches %}
     <tr>
       <td><a href="/dashboard/partidos/{{ m.id }}">{{ m.home_team }} vs {{ m.away_team }}</a></td>
-      <td>{{ m.date | fecha }}</td>
-      <td>{{ m.competition or "—" }}</td>
-      <td>{{ m.location or "—" }}</td>
-      <td>{{ m.scout_name or "—" }}</td>
-      <td class="num">{{ m.players }}</td>
-      <td class="num">{{ m.observations }}</td>
-      <td>{% if m.is_active %}<span class="badge live">En vivo</span>{% endif %}</td>
+      <td data-label="Fecha">{{ m.date | fecha }}</td>
+      <td data-label="Competición">{{ m.competition or "—" }}</td>
+      <td data-label="Sede">{{ m.location or "—" }}</td>
+      <td data-label="Ojeador">{{ m.scout_name or "—" }}</td>
+      <td data-label="Jugadores" class="num">{{ m.players }}</td>
+      <td data-label="Observaciones" class="num">{{ m.observations }}</td>
+      <td data-label="">{% if m.is_active %}<span class="badge live">En vivo</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>

@@ -21,6 +21,10 @@ python-dotenv==1.0.1
 # Excel report export (.xlsx workbooks). Pure-Python, no system deps.
 openpyxl>=3.1,<4.0
 
+# Player profile report as PDF (HTML → PDF). Needs Pango at the OS level —
+# installed in the Dockerfile.
+weasyprint>=62,<67
+
 # AI providers (only needed when USE_MOCK_AI=false)
 # Use floors, not exact pins: older anthropic/openai releases pass a `proxies`
 # kwarg that httpx>=0.28 removed, which crashes at client construction.

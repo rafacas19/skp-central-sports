@@ -12,3 +12,6 @@ venv/
 docs/*.pdf
 # Client-supplied squad lists — real player data, never committed.
 docs/*.xlsx
+
+# Client feedback material (real player names/photos) — never committed.
+feedback/

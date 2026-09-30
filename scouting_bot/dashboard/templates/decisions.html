@@ -6,6 +6,9 @@
 <h1>Decisiones</h1>
 <p class="muted">Jugadores agrupados por decisión — la decisión sale de la última valoración (1–5), salvo que se haya fijado a mano.</p>
 
+{% set fns = namespace(n=0) %}{% for k, v in filters.items() %}{% if k not in ("any", "orden") and v %}{% set fns.n = fns.n + 1 %}{% endif %}{% endfor %}
+<details class="filters-box" data-filters {% if fns.n %}open{% endif %}>
+  <summary>Filtros{% if fns.n %} <span class="chip small">{{ fns.n }} activo{{ "s" if fns.n != 1 }}</span>{% endif %}</summary>
 <form class="filters" method="get" action="/dashboard/decisiones">
   {{ position_filter(position_options, filters.posicion) }}
   {{ age_filter(age_options, filters.edad) }}
@@ -13,6 +16,7 @@
   <button type="submit">Filtrar</button>
   {% if filters.any %}<a class="clear" href="/dashboard/decisiones">Limpiar</a>{% endif %}
 </form>
+</details>
 
 {% if groups %}
 {% for g in groups %}

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Novedades — Selecciones</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color: #1a1a1a; line-height: 1.5; font-size: 11.5pt; margin: 0;
+  }
+  header {
+    border-bottom: 3px solid #1f7a3d; padding-bottom: 10px; margin-bottom: 18px;
+  }
+  h1 { font-size: 22pt; margin: 0 0 4px; color: #14532d; }
+  header .sub { color: #555; font-size: 10.5pt; margin: 0; }
+  h2 {
+    font-size: 14pt; color: #14532d; margin: 22px 0 8px;
+    border-bottom: 1px solid #d8e6dd; padding-bottom: 3px;
+  }
+  h3 { font-size: 12pt; color: #0b3d20; margin: 16px 0 4px; }
+  p { margin: 6px 0; }
+  .lead { color: #333; }
+  code {
+    background: #f0f3f1; border: 1px solid #e0e6e2; border-radius: 4px;
+    padding: 1px 5px; font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 9.8pt; color: #0b3d20;
+  }
+  .ui { font-weight: 700; color: #0b3d20; }
+  ul, ol { margin: 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  .tag {
+    display: inline-block; font-size: 8.5pt; font-weight: 700;
+    padding: 1px 7px; border-radius: 10px; margin-left: 6px; vertical-align: middle;
+  }
+  .tag-new { background: #e7f4ec; color: #1f7a3d; border: 1px solid #b7dcc4; }
+  .tag-chg { background: #fff4e0; color: #b35c00; border: 1px solid #f0d9a8; }
+  table { border-collapse: collapse; margin: 8px 0; font-size: 8.6pt; width: 100%; }
+  th, td { border: 1px solid #d8e6dd; padding: 4px 7px; text-align: left; }
+  th { background: #eaf4ee; color: #14532d; font-size: 8pt; letter-spacing: .02em; }
+  td.name { font-weight: 700; color: #1a1a1a; }
+  .caption { color: #888; font-size: 9pt; margin: 2px 0 0; }
+  .tip {
+    background: #fffbe9; border: 1px solid #f0e2a8; border-left: 3px solid #d9a800;
+    border-radius: 4px; padding: 10px 14px; margin: 12px 0; font-size: 10.5pt;
+  }
+  .tip strong { color: #8a6d00; }
+  .prev {
+    background: #f7f9f8; border: 1px solid #e0e6e2; border-left: 3px solid #9bbfab;
+    border-radius: 4px; padding: 10px 14px; margin: 10px 0; color: #444; font-size: 10.5pt;
+  }
+  footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #ddd; color: #888; font-size: 9pt; }
+  .avoid-break { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🇨🇴 Novedades — Selecciones</h1>
+  <p class="sub">Panel de Scouting · Septiembre de 2026 · Skip Central Sports</p>
+</header>
+
+<p class="lead">Ya puedes armar <strong>selecciones</strong> en el panel: listas de
+convocados por categoría, con las mismas columnas del Excel de siempre y un botón
+para descargarlo. Todo esto es del <strong>panel web</strong>; el bot de Telegram
+no cambia en nada.</p>
+
+<h2>Crear una selección <span class="tag tag-new">NUEVO</span></h2>
+
+<p>Hay una pestaña nueva arriba: <span class="ui">Selecciones</span>. Ahí vive cada
+convocatoria.</p>
+
+<ol>
+  <li>Entra en <span class="ui">Selecciones</span>.</li>
+  <li>Escribe el nombre y pulsa <span class="ui">Crear</span>. Por ejemplo:
+      <code>Selección Colombia U15</code>.</li>
+  <li>Listo. Se guarda como <strong>Colombia</strong> con categoría <strong>Sub-15</strong>.</li>
+</ol>
+
+<p>La categoría se deduce sola del nombre: <code>U15</code>, <code>sub 15</code> y
+<code>Sub-15</code> son lo mismo. También entiende <em>Femenino</em>, <em>Juvenil</em>,
+<em>Reserva</em> y <em>Profesional</em>. Si quieres otra, escríbela a mano en el campo
+<span class="ui">Categoría</span>.</p>
+
+<p>Puedes tener tantas como necesites: Colombia Sub-15, Sub-17, Sub-20… Cada una es
+su propia lista.</p>
+
+<h2>Convocar jugadores <span class="tag tag-new">NUEVO</span></h2>
+
+<p>Dos caminos, el que te quede más cómodo:</p>
+
+<ul>
+  <li><strong>Desde la selección:</strong> abre la lista, elige al jugador en
+      <span class="ui">Convocar jugador</span> y pulsa <span class="ui">Añadir</span>.</li>
+  <li><strong>Desde la ficha del jugador:</strong> en su perfil, sección
+      <span class="ui">Selecciones</span>, elige la convocatoria.</li>
+</ul>
+
+<p>Para sacarlo de la lista, el botón <span class="ui">Quitar</span> de su fila.</p>
+
+<div class="tip">
+  <strong>El club no se toca.</strong> Convocar a un jugador no le cambia el equipo:
+  sigue siendo del Junior, del Nacional o de donde sea, y además aparece en la
+  selección. Es un solo jugador con dos sitios, no dos fichas.
+</div>
+
+<p>Un mismo jugador puede estar en varias selecciones a la vez, y las listas de años
+anteriores se quedan como estaban cuando pase a la categoría siguiente.</p>
+
+<h2>Descargar el Excel <span class="tag tag-new">NUEVO</span></h2>
+
+<p>Botón <span class="ui">Descargar Excel</span>, arriba a la derecha de cada
+selección. Sale con <strong>las mismas nueve columnas</strong> que ya usabas, en el
+mismo orden.</p>
+
+<div class="avoid-break">
+<table>
+  <thead>
+    <tr>
+      <th>NOMBRE</th><th>APELLIDO</th><th>EDAD</th><th>POSICIÓN</th>
+      <th>PIERNA HABIL</th><th>CLUB</th><th>AGENTE</th>
+      <th>VALORACIÓN</th><th>SEGUIMIENTO</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="name">Camilo</td><td class="name">Restrepo</td><td>2011</td>
+      <td>Extremo</td><td>Derecho</td><td>Millonarios</td><td>Sin Agente</td>
+      <td>4</td><td>MUY INTERESANTE</td>
+    </tr>
+    <tr>
+      <td class="name">Andrés</td><td class="name">Villa</td><td>2011</td>
+      <td>Defensa central</td><td>Izquierdo</td><td>Envigado</td><td>Base Sports</td>
+      <td>3</td><td>INTERESANTE</td>
+    </tr>
+  </tbody>
+</table>
+<p class="caption">Ejemplo. Lo que ves en pantalla es exactamente lo que se descarga.</p>
+</div>
+
+<h3>De dónde sale cada dato</h3>
+
+<p>Todo se rellena solo con lo que ya tiene la ficha del jugador. Si una casilla sale
+vacía, se arregla editando al jugador, no el Excel.</p>
+
+<ul>
+  <li><strong>EDAD</strong> es el año de nacimiento, como lo llevas tú.</li>
+  <li><strong>AGENTE</strong> pone <code>Sin Agente</code> cuando no hay ninguno.</li>
+  <li><strong>SEGUIMIENTO</strong> es la decisión: sale de la valoración, salvo que tú
+      hayas puesto otra a mano.</li>
+</ul>
+
+<h2>Y de paso <span class="tag tag-chg">MEJORAS</span></h2>
+
+<ul>
+  <li><strong>El agente ya estaba.</strong> Está en la ficha del jugador y en
+      <span class="ui">Editar</span>: campos <em>Agente</em> y
+      <em>Teléfono del agente</em>.</li>
+  <li><strong>Fusionar no borra convocatorias.</strong> Si unes dos fichas del mismo
+      jugador, sus selecciones pasan a la ficha que se queda.</li>
+  <li><strong>Jugadores de dos posiciones.</strong> Quien juega de <em>Defensa central,
+      Mediocentro defensivo</em> ahora aparece al filtrar por cualquiera de las dos.</li>
+</ul>
+
+<div class="prev">
+  <strong>El bot sigue igual.</strong> Nada cambia en Telegram: sigues anotando el
+  partido como siempre, y lo que captures aparece en el panel.
+</div>
+
+<footer>
+  Skip Central Sports · Bot de Scouting · Novedades de septiembre de 2026<br>
+  ¿Algo no funciona como esperabas? Cuéntalo y lo revisamos.
+</footer>
+
+</body>
+</html>

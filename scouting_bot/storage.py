@@ -14,11 +14,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from .categories import split_category
+from .evaluations import check_merge
 from .models import (
+    ORIGIN_BOT,
     SESSION_ACTIVE,
     SESSION_ENDED,
+    Evaluation,
+    MatchPlayer,
     Observation,
+    ProfileReport,
     Prospect,
+    ProspectPhoto,
     ScoutProfile,
     Session,
     SquadMember,
@@ -45,6 +51,7 @@ MERGEABLE_BIO_FIELDS = (
     "market_value_usd",
     "contract_year",
     "photo_file_id",
+    "video_url",
     "notes",
     "latest_rating",
     "decision_status",
@@ -88,7 +95,11 @@ class Storage:
 
     async def get_active_session(self, agent_chat_id: int) -> Session | None:
         session = (
-            await Session.filter(agent_chat_id=agent_chat_id, state=SESSION_ACTIVE)
+            # Web matches are run from the dashboard: a note sent to the bot
+            # must never land in one just because it is the newest open match.
+            await Session.filter(
+                agent_chat_id=agent_chat_id, state=SESSION_ACTIVE, origin=ORIGIN_BOT
+            )
             .order_by("-id")
             .first()
         )
@@ -120,9 +131,10 @@ class Storage:
         )
 
     async def stale_active_sessions(self, older_than: datetime) -> list[Session]:
-        """Active sessions whose last activity predates the cutoff (auto-nudge)."""
+        """Active bot sessions whose last activity predates the cutoff
+        (auto-nudge). Web matches are closed on the dashboard, not nudged."""
         sessions = await Session.filter(
-            state=SESSION_ACTIVE, last_activity_at__lt=older_than
+            state=SESSION_ACTIVE, origin=ORIGIN_BOT, last_activity_at__lt=older_than
         ).prefetch_related("observations")
         return list(sessions)
 
@@ -273,9 +285,13 @@ class Storage:
         Bio the survivor is missing is backfilled from the record being dropped,
         so merging two halves of one player keeps every detail either half had.
         Only blanks are filled — the survivor's own values always win.
+        Raises evaluations.MergeConflict when both were scored in the same match.
         """
         if keep_id == drop_id:
             return
+        # Refuse before touching anything: two sheets for one (match, player)
+        # can't both survive, and picking one is the scout's call.
+        await check_merge(keep_id, drop_id)
         keep = await Prospect.filter(id=keep_id).first()
         drop = await Prospect.filter(id=drop_id).first()
         if keep is not None and drop is not None:
@@ -298,6 +314,32 @@ class Storage:
                 prospect_id=drop_id, squad_id__in=list(shared)
             ).delete()
         await SquadMember.filter(prospect_id=drop_id).update(prospect_id=keep_id)
+        await Evaluation.filter(prospect_id=drop_id).update(prospect_id=keep_id)
+        # Lineup rows too, deduped per match like squad memberships.
+        in_lineup = await MatchPlayer.filter(prospect_id=keep_id).values_list(
+            "session_id", flat=True
+        )
+        if in_lineup:
+            await MatchPlayer.filter(
+                prospect_id=drop_id, session_id__in=list(in_lineup)
+            ).delete()
+        await MatchPlayer.filter(prospect_id=drop_id).update(prospect_id=keep_id)
+        # Report texts: the survivor's own text for a profile wins; the rest move.
+        own = await ProfileReport.filter(prospect_id=keep_id).values_list(
+            "profile", flat=True
+        )
+        if own:
+            await ProfileReport.filter(prospect_id=drop_id, profile__in=list(own)).delete()
+        await ProfileReport.filter(prospect_id=drop_id).update(prospect_id=keep_id)
+        # An uploaded photo moves only if the survivor has none of his own.
+        # (The prospect id is the row's key, so it is copied rather than repointed;
+        # the loser's row goes with him through the FK cascade.)
+        if not await ProspectPhoto.filter(prospect_id=keep_id).exists():
+            photo = await ProspectPhoto.get_or_none(prospect_id=drop_id)
+            if photo is not None:
+                await ProspectPhoto.create(
+                    prospect_id=keep_id, data=photo.data, mime=photo.mime
+                )
         await Observation.filter(prospect_id=drop_id).update(prospect_id=keep_id)
         await Prospect.filter(id=drop_id).delete()
 

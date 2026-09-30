@@ -18,3 +18,5 @@ reports/
 docker-compose.yml
 Dockerfile
 .dockerignore
+docs/
+feedback/

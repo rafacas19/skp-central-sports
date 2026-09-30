@@ -7,7 +7,10 @@
     {% if player.rating is not none %}<span class="chip">{{ player.rating | valoracion }} / 5</span>{% endif %}
     {% if player.decision %}<span class="chip">{{ player.decision }}</span>{% endif %}
   </h1>
-  <a class="button-link primary" href="/dashboard/jugadores/{{ player.id }}/editar">Editar</a>
+  <div class="chips">
+    <a class="button-link" href="/dashboard/jugadores/{{ player.id }}/informe">Informe de perfil</a>
+    <a class="button-link primary" href="/dashboard/jugadores/{{ player.id }}/editar">Editar</a>
+  </div>
 </div>
 {% if player.is_temporary %}
 <p class="muted">Perfil sin identificar — ponle nombre para completarlo.</p>
@@ -38,6 +41,7 @@
   {% elif player.agent_phone %}
   <div><span class="meta-label">Contacto</span>{{ player.agent_phone }}</div>
   {% endif %}
+  {% if player.video_url %}<div><span class="meta-label">Video</span><a href="{{ player.video_url }}" target="_blank" rel="noopener noreferrer">Ver video</a></div>{% endif %}
   <div><span class="meta-label">Partidos</span>{{ player.matches }}</div>
   <div><span class="meta-label">Observaciones</span>{{ player.observations }}</div>
 </section>
@@ -120,14 +124,14 @@
 {% if rating_history %}
 <section>
   <h2>Historial de valoraciones</h2>
-  <table>
+<table class="stack">
     <thead><tr><th>Fecha</th><th>Partido</th><th>Valoración</th></tr></thead>
     <tbody>
       {% for h in rating_history %}
       <tr>
-        <td>{{ h.date | fecha }}</td>
-        <td><a href="/dashboard/partidos/{{ h.session_id }}">{{ h.match }}</a></td>
-        <td class="num rating">{{ h.rating | valoracion }} / 5</td>
+        <td data-label="Fecha">{{ h.date | fecha }}</td>
+        <td data-label="Partido"><a href="/dashboard/partidos/{{ h.session_id }}">{{ h.match }}</a></td>
+        <td data-label="Valoración" class="num rating">{{ h.rating | valoracion }} / 5</td>
       </tr>
       {% endfor %}
     </tbody>

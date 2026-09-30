@@ -5,6 +5,172 @@ tecnicismos.
 
 ---
 
+## Versión de octubre de 2026 — «Partido en el panel»
+
+Nuevo en el **panel web**, pensado para usarlo **desde el móvil**. El bot de
+Telegram sigue igual, y un partido creado en el panel no se mezcla nunca con el
+que tengas abierto en el bot.
+
+### ⚽ Crear un partido desde el panel
+En **Partidos**, botón **+ Nuevo partido**. Son tres pasos cortos:
+
+1. **Equipos**: local, visitante, fecha y, si quieres, competición y sede. La
+   categoría se separa sola del nombre (`Santa Fe U17` → Santa Fe · Sub-17).
+2. **Sistema**: elige cómo forma cada equipo (4-3-3, 4-4-2, 4-2-3-1 o 3-5-2).
+3. **Dorsales y nombres**: todo opcional. Rellena solo los que te interesen o
+   pulsa **Saltar, ver el campo**.
+
+### 🟩 El campo
+Los dos equipos en su sistema, cada puesto con su camiseta, aunque esté vacío
+(un puesto vacío muestra solo su abreviatura: *POR*, *DFC*, *LI*…). **Toca un
+jugador para puntuarlo**. Si el puesto está vacío, se crea el jugador en ese
+momento y le pones nombre o dorsal cuando quieras, también con el partido ya
+terminado.
+
+- Los jugadores puntuados llevan un aro amarillo con su nota.
+- Con el móvil en horizontal, el campo se gira para aprovechar la pantalla.
+- En el menú **⋮** del campo: *Dorsales y nombres*, *Cambiar sistema* y
+  *Finalizar partido*.
+
+### 📝 Puntuar por perfil
+La ficha de cada jugador usa **vuestro perfil por posición** (Defensa Central,
+Lateral, Medio Centro, Interior, Extremo, Centro Delantero), con los mismos
+criterios y descripciones de vuestra hoja *Perfiles Scout*.
+
+- Una sección cada vez: **Técnica · Defensa · Ataque · Condición · Mental ·
+  Físico**, con el avance de cada una (por ejemplo *3/5*).
+- Cada criterio, del **1 al 5**. Toca de nuevo la nota para quitarla. Toca el
+  nombre del criterio para leer su descripción.
+- **Se guarda solo** con cada toque.
+- La **valoración del partido es la media** de lo puntuado, y de ahí sale la
+  decisión como siempre (por ejemplo, 3,46 → *Interesante*). Si puntúas un
+  partido antiguo, no pisa la valoración de uno más reciente.
+- Los **porteros** tienen, por ahora, una valoración única de 1 a 5. En cuanto
+  tengamos vuestra hoja de portero, tendrán su perfil.
+
+### 📄 Informe de perfil (PDF)
+En la ficha del jugador, **Informe de perfil**: la misma hoja que vuestro
+ejemplo, con una columna por partido puntuado, la media de cada sección
+(*1. Técnica — 3,5/5*) y las observaciones.
+
+- **Generar texto con IA** redacta el resumen y un párrafo por sección a partir
+  de las notas; luego lo puedes editar.
+- Si editas el texto, **nunca se sobrescribe solo**: si llegan evaluaciones
+  nuevas, el informe te avisa y tú decides si lo regeneras.
+- **Descargar PDF**: una página, lista para compartir.
+
+### 📷 Foto y vídeo
+En **Editar** jugador puedes subir una **foto** (JPG, PNG o WEBP, hasta 5 MB),
+que sustituye a la de Telegram, y añadir un **enlace de vídeo**, que aparece en
+el informe.
+
+### 📱 Todo el panel en el móvil
+- El menú de arriba se recoge en un botón **Menú**.
+- Las listas de jugadores, partidos y selecciones se ven como tarjetas.
+- Los filtros se pliegan en **Filtros**.
+- Todos los botones tienen el tamaño de un dedo.
+
+---
+
+## Versión de septiembre de 2026 — «Selecciones»
+
+Nuevo en el **panel web**. El bot de Telegram no cambia en nada.
+
+### 🇨🇴 Selecciones (convocatorias por categoría)
+Hay una pestaña nueva arriba: **Selecciones**. Cada convocatoria es una lista de
+jugadores con su categoría.
+
+1. Entra en **Selecciones**.
+2. Escribe el nombre y pulsa **Crear**. Por ejemplo: `Selección Colombia U15`.
+3. Se guarda como *Colombia* con categoría *Sub-15*.
+
+La categoría se deduce sola del nombre (`U15`, `sub 15`, `Sub-15` son lo mismo;
+también entiende *Femenino*, *Juvenil*, *Reserva* y *Profesional*). Si quieres
+otra, escríbela a mano en el campo **Categoría**.
+
+Puedes tener tantas como necesites: Colombia Sub-15, Sub-17, Sub-20…
+
+### 👤 Convocar jugadores
+Dos caminos:
+
+- **Desde la selección:** abre la lista, elige al jugador en *Convocar jugador* y
+  pulsa **Añadir**.
+- **Desde la ficha del jugador:** en su perfil, sección *Selecciones*.
+
+Para sacarlo, el botón **Quitar** de su fila.
+
+Ojo, esto es lo importante: **convocar a un jugador no le cambia el club**. Sigue
+siendo del Junior o del Nacional, y además aparece en la selección. Es un solo
+jugador con dos sitios, no dos fichas. Un mismo jugador puede estar en varias
+selecciones a la vez, y las listas de años anteriores se quedan como estaban.
+
+### 📊 Descargar el Excel
+Botón **Descargar Excel**, arriba a la derecha de cada selección. Sale con las
+mismas nueve columnas de siempre y en el mismo orden: NOMBRE · APELLIDO · EDAD ·
+POSICIÓN · PIERNA HABIL · CLUB · AGENTE · VALORACIÓN · SEGUIMIENTO.
+
+Lo que ves en pantalla es exactamente lo que se descarga. Todo se rellena con lo
+que ya tiene la ficha del jugador, así que una casilla vacía se arregla editando
+al jugador, no el Excel.
+
+- **EDAD** es el año de nacimiento, como lo llevas tú.
+- **AGENTE** pone `Sin Agente` cuando no hay ninguno.
+- **SEGUIMIENTO** es la decisión: sale de la valoración, salvo que hayas puesto
+  otra a mano.
+
+### 🔧 Y de paso
+- **El agente ya estaba**: en la ficha del jugador y en **Editar**, campos *Agente*
+  y *Teléfono del agente*.
+- **Fusionar no borra convocatorias**: al unir dos fichas del mismo jugador, sus
+  selecciones pasan a la ficha que se queda.
+- **Jugadores de dos posiciones**: quien juega de *Defensa central, Mediocentro
+  defensivo* ya aparece al filtrar por cualquiera de las dos.
+
+---
+
+## Versión de agosto de 2026 — «Panel: jugadores y seguimiento»
+
+Todo esto es del **panel web**, no del bot. El bot funciona igual.
+
+### ➕ Crear jugadores a mano
+Antes solo aparecían los jugadores nombrados en un partido. Ahora puedes añadir
+uno tú mismo: un recomendado, alguien que viste sin estar observando.
+
+1. Entra en **Jugadores**.
+2. Botón **«+ Nuevo jugador»**, arriba a la derecha.
+3. El nombre es obligatorio; lo demás (equipo, posición, edad…) puedes dejarlo
+   en blanco y completarlo luego.
+
+Si ya existe un jugador con ese nombre y equipo, el panel te avisa y te enlaza a
+su ficha en vez de crear un duplicado.
+
+### 🏷️ Categoría del equipo automática
+Si escribes **«Santa Fe U18»**, el sistema guarda el club (*Santa Fe*) y la
+categoría (*Sub-18*) por separado. Tú sigues escribiendo como siempre.
+
+- Reconoce `Sub-18`, `sub 18`, `U18`, `u-18` y también *Juvenil*, *Reserva*,
+  *Femenino* y *Profesional*.
+- Si el nombre no lleva categoría, no pasa nada: se queda en blanco.
+- Ventaja: «Santa Fe» y «Santa Fe U18» ya son el mismo club, así que un jugador
+  no se te parte en dos fichas.
+
+### 📞 Seguimiento de contacto
+Cada jugador tiene ahora un estado de contacto, para saber por dónde va la
+conversación: **Sin contactar · Contactado · En conversación · Reunión agendada ·
+Acuerdo · Descartado**.
+
+- **Cambiarlo rápido:** abre la ficha del jugador, sección *Seguimiento*, y pulsa
+  el estado. Se guarda la fecha de hoy como último contacto.
+- **Con detalle:** en **Editar** puedes poner la fecha exacta y las notas de la
+  conversación (con quién hablaste, próximos pasos).
+- **Ver quién falta:** en la lista de **Jugadores** hay una columna *Contacto* y
+  un filtro. Filtra por *Sin contactar* y tienes tu lista de llamadas.
+
+Ojo: el estado de contacto es **independiente** de la decisión deportiva. Un
+jugador puede ser «A firmar» en el campo y «Descartado» en la negociación.
+
+---
+
 ## Versión de junio de 2026 — «Asistente inteligente»
 
 El bot ahora se comporta menos como una base de datos con comandos y más como un

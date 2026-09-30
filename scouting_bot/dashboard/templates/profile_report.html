@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Informe de {{ player.name }} — Panel de Scouting{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/dashboard/static/profile_report.css?v={{ asset_v }}">
+<div class="pr-controls">
+  <p><a class="back" href="/dashboard/jugadores/{{ player.id }}">← {{ player.name }}</a></p>
+  <div class="page-head">
+    <h1>Informe de perfil</h1>
+    <div class="chips">
+      <a class="button-link primary" href="/dashboard/jugadores/{{ player.id }}/informe.pdf?perfil={{ profile.key }}">Descargar PDF</a>
+      <a class="button-link" href="/dashboard/jugadores/{{ player.id }}/informe/texto?perfil={{ profile.key }}">Editar texto</a>
+    </div>
+  </div>
+
+  {% if profiles | length > 1 %}
+  <form class="form inline-form" method="get" action="">
+    <label>Perfil
+      <select name="perfil">
+        {% for p in profiles %}<option value="{{ p.key }}" {% if p.key == profile.key %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Ver</button>
+  </form>
+  {% endif %}
+
+  {% if aviso == "ia_error" %}
+  <div class="callout warn"><p>No se pudo generar el texto ahora mismo. Puedes escribirlo tú en «Editar texto» o intentarlo más tarde.</p></div>
+  {% endif %}
+  {% if text.refreshing %}
+  <p class="muted">Hay evaluaciones nuevas — el texto se está actualizando; recarga en un momento.</p>
+  {% elif text.stale and text.edited %}
+  <div class="callout warn">
+    <p><strong>Hay evaluaciones nuevas.</strong> El texto lo editaste tú, así que no se ha tocado.</p>
+    <form method="post" action="/dashboard/jugadores/{{ player.id }}/informe/generar">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+      <input type="hidden" name="perfil" value="{{ profile.key }}">
+      <button type="submit" class="chip-button">Regenerar con IA (reemplaza tu texto)</button>
+    </form>
+  </div>
+  {% endif %}
+  {% if not text.exists %}
+  <form method="post" action="/dashboard/jugadores/{{ player.id }}/informe/generar" class="pr-generate">
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+    <input type="hidden" name="perfil" value="{{ profile.key }}">
+    <button type="submit" class="chip-button">Generar texto con IA</button>
+    <span class="muted">Redacta el resumen y las observaciones a partir de las puntuaciones. Luego puedes editarlo.</span>
+  </form>
+  {% endif %}
+</div>
+
+<div class="pr-screen">
+  {% set pdf = false %}
+  {% include "_profile_report_sheet.html" %}
+</div>
+{% endblock %}
