@@ -50,12 +50,19 @@ Si el mensaje no contiene ninguna observación clasificable devuelve {{"notes": 
 Devuelve SOLO el objeto JSON."""
 
 _SUMMARY_PROMPT = """Eres un analista de scouting. A partir del historial de
-observaciones en bruto de un jugador (en varios partidos), redacta un perfil
-breve en español: patrones recurrentes, fortalezas, posibles dudas y una
-recomendación final. No inventes datos que no estén en las observaciones.
+observaciones en bruto de un jugador (en varios partidos) y, si las hay, de sus
+fichas puntuadas por perfil de posición (criterios de 1 a 5, con la media de
+cada sección y sus criterios más altos y más bajos), redacta un perfil breve en
+español: patrones recurrentes, fortalezas, posibles dudas y una recomendación
+final. Usa las puntuaciones como evidencia (cita las secciones y criterios por
+su nombre) y no inventes datos que no estén en las observaciones ni en las
+fichas.
 
 Observaciones (JSON):
 {observations}
+
+Fichas puntuadas por perfil (JSON, puede estar vacío):
+{evaluations}
 
 Devuelve solo el texto del perfil, sin encabezados ni JSON."""
 
@@ -119,8 +126,13 @@ class RealAIProvider(AIProvider):
         data = _extract_json(msg.content[0].text)
         return [_note_from(raw, text) for raw in data.get("notes", [])]
 
-    async def summarize_player(self, observations: list[dict]) -> str:
-        prompt = _SUMMARY_PROMPT.format(observations=json.dumps(observations, ensure_ascii=False))
+    async def summarize_player(
+        self, observations: list[dict], evaluations: list[dict] | None = None
+    ) -> str:
+        prompt = _SUMMARY_PROMPT.format(
+            observations=json.dumps(observations, ensure_ascii=False),
+            evaluations=json.dumps(evaluations or [], ensure_ascii=False),
+        )
         msg = await self._claude.messages.create(
             model=settings.anthropic_model,
             max_tokens=800,

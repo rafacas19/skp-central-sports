@@ -20,17 +20,21 @@ from datetime import date, datetime, time
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from ..evaluations import MergeConflict
+from ..categories import split_category
+from ..evaluations import MergeConflict, match_when
 from ..formations import BENCH_ROWS, FORMATIONS, get_formation, pitch_point
 from ..models import (
     AWAY,
     HOME,
     ORIGIN_WEB,
     SESSION_ACTIVE,
+    SOURCE_WEB,
     Evaluation,
     MatchPlayer,
+    Observation,
     Prospect,
     Session,
+    decision_for_rating,
 )
 from ..positions import position_abbr
 from ..storage import Storage
@@ -103,26 +107,39 @@ async def match_new_page(request: Request):
     return _render(request, "match_new.html", {"values": _new_values(), "errors": {}})
 
 
+def _validate_match(values: dict, *, teams: bool = True) -> tuple[dict[str, str], date | None]:
+    """Field errors for the match form, and the parsed date."""
+    errors: dict[str, str] = {}
+    if teams:
+        for field, label in (("local", "El equipo local"), ("visitante", "El equipo visitante")):
+            if not values[field]:
+                errors[field] = f"{label} es obligatorio."
+            elif len(values[field]) > _MAX_TEAM:
+                errors[field] = f"{label} no puede pasar de {_MAX_TEAM} caracteres."
+        if not errors and normalize_name(values["local"]) == normalize_name(values["visitante"]):
+            errors["visitante"] = "Los dos equipos no pueden ser el mismo."
+    for field in ("competicion", "categoria", "sede"):
+        if len(values[field]) > _MAX_TEXT:
+            errors[field] = f"No puede pasar de {_MAX_TEXT} caracteres."
+    played = None
+    try:
+        played = date.fromisoformat(values["fecha"])
+    except ValueError:
+        errors["fecha"] = "Fecha no válida."
+    return errors, played
+
+
+def _noon(played: date) -> datetime:
+    # Midday in the scout's timezone: a bare date must not slip a day in UTC.
+    return datetime.combine(played, time(12, 0), tzinfo=queries.TZ)
+
+
 @router.post("/partidos/nuevo", dependencies=[Depends(auth.require_dashboard)])
 async def match_new_submit(request: Request):
     submitted = {k: str(v) for k, v in (await request.form()).items()}
     auth.require_csrf(submitted.get(auth.CSRF_FIELD))
     values = _new_values(submitted)
-    errors: dict[str, str] = {}
-    for field, label in (("local", "El equipo local"), ("visitante", "El equipo visitante")):
-        if not values[field]:
-            errors[field] = f"{label} es obligatorio."
-        elif len(values[field]) > _MAX_TEAM:
-            errors[field] = f"{label} no puede pasar de {_MAX_TEAM} caracteres."
-    if not errors and normalize_name(values["local"]) == normalize_name(values["visitante"]):
-        errors["visitante"] = "Los dos equipos no pueden ser el mismo."
-    for field in ("competicion", "categoria", "sede"):
-        if len(values[field]) > _MAX_TEXT:
-            errors[field] = f"No puede pasar de {_MAX_TEXT} caracteres."
-    try:
-        played = date.fromisoformat(values["fecha"])
-    except ValueError:
-        errors["fecha"] = "Fecha no válida."
+    errors, played = _validate_match(values)
     if errors:
         return _render(
             request, "match_new.html", {"values": values, "errors": errors},
@@ -141,12 +158,167 @@ async def match_new_submit(request: Request):
         category=values["categoria"] or None,
         location=values["sede"] or None,
         scout_name=await storage.get_scout_name(chat_id),
-        # Midday in the scout's timezone: a bare date must not slip a day in UTC.
-        match_date=datetime.combine(played, time(12, 0), tzinfo=queries.TZ),
+        match_date=_noon(played),
     )
     return RedirectResponse(
         f"/dashboard/partidos/{session.id}/sistema?nuevo=1", status_code=status.HTTP_303_SEE_OTHER
     )
+
+
+# ── Editing and deleting a match ────────────────────────────────────────
+def _edit_values(session: Session) -> dict:
+    when = (session.match_date or session.created_at).astimezone(queries.TZ)
+    return {
+        "local": session.home_team, "visitante": session.away_team,
+        "fecha": when.date().isoformat(), "competicion": session.competition or "",
+        "categoria": session.category or "", "sede": session.location or "",
+    }
+
+
+def _edit_context(session: Session, values: dict, errors: dict) -> dict:
+    return {
+        "values": values, "errors": errors,
+        "edit": {"id": session.id, "teams": session.origin == ORIGIN_WEB,
+                 "title": f"{session.home_team} vs {session.away_team}"},
+    }
+
+
+def _temp_key_prefix(session_id: int) -> str:
+    """Temporary players created for one match share this synthetic key prefix."""
+    return f"__temp__:{session_id}:"
+
+
+@router.get(
+    "/partidos/{session_id}/editar",
+    response_class=HTMLResponse,
+    dependencies=[Depends(auth.require_dashboard)],
+)
+async def match_edit_page(request: Request, session_id: int):
+    session = await Session.get_or_none(id=session_id)
+    if session is None:
+        return _missing(request)
+    return _render(request, "match_new.html", _edit_context(session, _edit_values(session), {}))
+
+
+@router.post("/partidos/{session_id}/editar", dependencies=[Depends(auth.require_dashboard)])
+async def match_edit_submit(request: Request, session_id: int):
+    """Correct a match's details. The teams can be renamed only on a web match:
+    a bot match's team names are what the bot matched the scout's notes on.
+
+    Renaming a team relabels the match's own unidentified players (they belong
+    to this match), never a named player — his club is his identity."""
+    session = await Session.get_or_none(id=session_id)
+    if session is None:
+        return _missing(request)
+    submitted = {k: str(v) for k, v in (await request.form()).items()}
+    auth.require_csrf(submitted.get(auth.CSRF_FIELD))
+    teams = session.origin == ORIGIN_WEB
+    values = {**_edit_values(session), **_new_values(submitted)}
+    if not teams:
+        values["local"], values["visitante"] = session.home_team, session.away_team
+    errors, played = _validate_match(values, teams=teams)
+    if errors:
+        return _render(request, "match_new.html", _edit_context(session, values, errors),
+                       status_code=status.HTTP_400_BAD_REQUEST)
+
+    updates = {
+        "competition": values["competicion"] or None,
+        "category": values["categoria"] or None,
+        "location": values["sede"] or None,
+        "match_date": _noon(played),
+    }
+    if teams:
+        for side, field in ((HOME, "local"), (AWAY, "visitante")):
+            old = _team(session, side)
+            club, category = split_category(values[field])
+            updates[f"{side}_team"] = club
+            updates[f"{side}_team_category"] = category
+            if normalize_name(club) != normalize_name(old):
+                await Prospect.filter(
+                    normalized_name__startswith=_temp_key_prefix(session_id), team=old
+                ).update(team=club, normalized_team=normalize_name(club))
+                await Observation.filter(session_id=session_id, team=old).update(team=club)
+    await Session.filter(id=session_id).update(**updates)
+    return RedirectResponse(f"/dashboard/partidos/{session_id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+async def delete_match(session: Session) -> None:
+    """Remove a web match and everything that only existed because of it.
+
+    Its observations, score sheets and lineup go with it (FK cascades); its
+    unidentified players go too once nothing else refers to them. A named
+    player whose headline rating came from this match falls back to his most
+    recent remaining rated match — or to no rating when there is none."""
+    sid = session.id
+    touched = set(await Evaluation.filter(session_id=sid).values_list("prospect_id", flat=True))
+    rated_here = {
+        o.prospect_id: o.rating
+        for o in await Observation.filter(session_id=sid, rating__not_isnull=True, prospect_id__not_isnull=True)
+    }
+    touched |= set(rated_here)
+    await Session.filter(id=sid).delete()
+
+    for p in await Prospect.filter(normalized_name__startswith=_temp_key_prefix(sid)):
+        if not (await Observation.filter(prospect_id=p.id).exists()
+                or await Evaluation.filter(prospect_id=p.id).exists()
+                or await MatchPlayer.filter(prospect_id=p.id).exists()):
+            await p.delete()
+
+    for pid in touched:
+        p = await Prospect.get_or_none(id=pid)
+        if p is None or p.latest_rating is None or pid not in rated_here:
+            continue
+        if p.latest_rating != rated_here[pid]:
+            continue  # his headline came from somewhere else
+        remaining = await (
+            Observation.filter(prospect_id=pid, rating__not_isnull=True).prefetch_related("session")
+        )
+        if remaining:
+            latest = max(remaining, key=lambda o: (match_when(o.session), o.created_at))
+            rating = latest.rating
+            await Prospect.filter(id=pid).update(
+                latest_rating=rating, decision_status=decision_for_rating(rating)
+            )
+        else:
+            auto = p.decision_status == decision_for_rating(p.latest_rating)
+            await Prospect.filter(id=pid).update(
+                latest_rating=None, **({"decision_status": None} if auto else {})
+            )
+
+
+@router.get(
+    "/partidos/{session_id}/borrar",
+    response_class=HTMLResponse,
+    dependencies=[Depends(auth.require_dashboard)],
+)
+async def match_delete_page(request: Request, session_id: int):
+    session = await Session.get_or_none(id=session_id)
+    if session is None:
+        return _missing(request)
+    return _render(request, "match_delete.html", {
+        "match": {"id": session.id, "title": f"{session.home_team} vs {session.away_team}",
+                  "date": session.match_date or session.created_at,
+                  "is_web": session.origin == ORIGIN_WEB},
+        "counts": {
+            "evaluations": await Evaluation.filter(session_id=session_id).count(),
+            "observations": await Observation.filter(session_id=session_id).count(),
+            "lineup": await MatchPlayer.filter(session_id=session_id).count(),
+        },
+    })
+
+
+@router.post("/partidos/{session_id}/borrar", dependencies=[Depends(auth.require_dashboard)])
+async def match_delete_submit(request: Request, session_id: int, csrf: str = Form(default="")):
+    """Delete a match created on the panel. Bot matches are not deletable here:
+    they are the scout's field record, captured note by note."""
+    auth.require_csrf(csrf)
+    session = await Session.get_or_none(id=session_id)
+    if session is None:
+        return _missing(request)
+    if session.origin != ORIGIN_WEB:
+        return RedirectResponse(f"/dashboard/partidos/{session_id}", status_code=status.HTTP_303_SEE_OTHER)
+    await delete_match(session)
+    return RedirectResponse("/dashboard/partidos?aviso=borrado", status_code=status.HTTP_303_SEE_OTHER)
 
 
 # ── Formation step ───────────────────────────────────────────────────────
@@ -311,6 +483,12 @@ async def save_lineup(session: Session, form: dict[str, str]) -> None:
     before = await MatchPlayer.filter(session_id=session.id).prefetch_related("prospect")
     by_slot = {(r.side, r.slot): r.prospect for r in before if r.slot is not None}
     by_number = {(r.side, r.shirt_number): r.prospect for r in before if r.shirt_number is not None}
+    # Substitution history survives a lineup edit: it belongs to the player.
+    sub_flags = {
+        r.prospect_id: {"came_on_for_id": r.came_on_for_id, "subbed_off": r.subbed_off,
+                        "sub_minute": r.sub_minute}
+        for r in before
+    }
 
     entries: list[tuple[str, int | None, str, int | None, str | None]] = []
     formations = {}
@@ -358,7 +536,7 @@ async def save_lineup(session: Session, form: dict[str, str]) -> None:
         placed.add(prospect.id)
         await MatchPlayer.create(
             session_id=session.id, prospect_id=prospect.id, side=side,
-            slot=slot, shirt_number=number,
+            slot=slot, shirt_number=number, **sub_flags.get(prospect.id, {}),
         )
 
 
@@ -395,6 +573,8 @@ async def pitch_context(session: Session) -> dict:
         for e in await Evaluation.filter(session_id=session.id)
     }
     tokens, benches = [], {HOME: [], AWAY: []}
+    # Who replaced whom, so a substituted player can offer "Deshacer cambio".
+    came_on = {r.came_on_for_id: r for r in rows if r.came_on_for_id and r.slot is not None}
     for side in SIDES:
         _, slots = get_formation(getattr(session, f"{side}_formation"))
         filled = {}
@@ -402,6 +582,10 @@ async def pitch_context(session: Session) -> dict:
             unnamed = is_unnamed(r.prospect)
             player = {
                 "id": r.prospect_id,
+                "came_on": bool(r.came_on_for_id) and r.slot is not None,
+                "subbed_off": r.subbed_off,
+                "sub_minute": r.sub_minute,
+                "undo_row": came_on[r.prospect_id].id if r.subbed_off and r.prospect_id in came_on else None,
                 "number": r.shirt_number if r.shirt_number is not None else "",
                 "label": "" if unnamed else short_name(r.prospect.name),
                 "name": (r.prospect.name if not unnamed
@@ -428,12 +612,15 @@ async def pitch_context(session: Session) -> dict:
                 player = {**player, "label": abbr}
             tokens.append({**player, "left": left, "top": top, "role": slot.role})
     for side in SIDES:
-        benches[side].sort(key=lambda p: (p["number"] == "", p["number"] or 0))
+        benches[side].sort(key=lambda p: (p["subbed_off"], p["number"] == "", p["number"] or 0))
     when = session.match_date or session.created_at
     actions = [
+        {"href": f"/dashboard/partidos/{session.id}/cambio", "label": "Hacer un cambio", "icon": "pitch"},
         {"href": f"/dashboard/partidos/{session.id}/alineacion", "label": "Dorsales y nombres", "icon": "edit"},
         {"href": f"/dashboard/partidos/{session.id}/sistema", "label": "Cambiar sistema", "icon": "pitch"},
         {"href": f"/dashboard/partidos/{session.id}", "label": "Detalle del partido", "icon": "list"},
+        {"href": f"/dashboard/partidos/{session.id}/evaluaciones.xlsx", "label": "Excel de evaluaciones", "icon": "file"},
+        {"href": f"/dashboard/partidos/{session.id}/editar", "label": "Editar partido", "icon": "edit"},
         {"href": "/dashboard/partidos", "label": "Todos los partidos", "icon": "flag", "sep": True},
         {"href": "/dashboard/jugadores", "label": "Jugadores", "icon": "user"},
     ]
@@ -516,6 +703,141 @@ async def open_position(
         f"/dashboard/partidos/{session_id}/jugadores/{row.prospect_id}/evaluar",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
+
+# ── Substitutions ────────────────────────────────────────────────────────
+def _player_label(row: MatchPlayer) -> str:
+    name = row.prospect.name if not is_unnamed(row.prospect) else ""
+    number = row.shirt_number if row.shirt_number is not None else row.prospect.shirt_number
+    if name and number is not None:
+        return f"{number} · {name}"
+    return name or (f"Dorsal {number}" if number is not None else "Sin identificar")
+
+
+async def _sub_context(session: Session, errors: dict | None = None, values: dict | None = None) -> dict:
+    rows = await MatchPlayer.filter(session_id=session.id).prefetch_related("prospect")
+    _, home_slots = get_formation(session.home_formation)
+    _, away_slots = get_formation(session.away_formation)
+    slots = {HOME: home_slots, AWAY: away_slots}
+    sides = []
+    for side in SIDES:
+        on = [r for r in rows if r.side == side and r.slot is not None]
+        on.sort(key=lambda r: r.slot)
+        bench = [r for r in rows if r.side == side and r.slot is None and not r.subbed_off]
+        sides.append({
+            "side": side, "team": _team(session, side),
+            "on": [{"id": r.id, "label": f"{_player_label(r)} ({slots[side][r.slot].role})"
+                    if r.slot < len(slots[side]) else _player_label(r)} for r in on],
+            "bench": [{"id": r.id, "label": _player_label(r)} for r in bench],
+        })
+    return {
+        "match": {"id": session.id, "home_team": session.home_team, "away_team": session.away_team},
+        "sides": sides, "errors": errors or {}, "values": values or {},
+    }
+
+
+@router.get(
+    "/partidos/{session_id}/cambio",
+    response_class=HTMLResponse,
+    dependencies=[Depends(auth.require_dashboard)],
+)
+async def substitution_page(request: Request, session_id: int, lado: str | None = None):
+    session = await Session.get_or_none(id=session_id)
+    if session is None:
+        return _missing(request)
+    context = await _sub_context(session, values={"lado": lado if lado in SIDES else HOME})
+    return _render(request, "substitution.html", context)
+
+
+@router.post("/partidos/{session_id}/cambio", dependencies=[Depends(auth.require_dashboard)])
+async def substitution_submit(request: Request, session_id: int):
+    """Make a change: who comes on (a substitute on the bench, or someone typed
+    now) for whom, and optionally at what minute.
+
+    The player coming on takes the slot and the one going off moves to the bench
+    marked as substituted — both keep their score sheets. An ordinary
+    substitution observation is written too, as the bot does for "entra X sale Y"."""
+    form = {k: str(v) for k, v in (await request.form()).items()}
+    auth.require_csrf(form.get(auth.CSRF_FIELD))
+    session = await Session.get_or_none(id=session_id)
+    if session is None:
+        return _missing(request)
+    side = form.get("lado") if form.get("lado") in SIDES else HOME
+    errors: dict[str, str] = {}
+    out_row = None
+    if (form.get(f"sale-{side}") or "").isdigit():
+        out_row = await MatchPlayer.get_or_none(
+            id=int(form[f"sale-{side}"]), session_id=session_id, side=side, slot__not_isnull=True
+        ).prefetch_related("prospect")
+    if out_row is None:
+        errors["sale"] = "Elige quién sale."
+    raw_minute = (form.get("minuto") or "").strip()
+    minute = int(raw_minute) if raw_minute.isdigit() and int(raw_minute) <= 150 else None
+    if raw_minute and minute is None:
+        errors["minuto"] = "El minuto debe ser un número entre 0 y 150."
+
+    in_row = None
+    entra = form.get(f"entra-{side}") or ""
+    if entra.isdigit():
+        in_row = await MatchPlayer.get_or_none(
+            id=int(entra), session_id=session_id, side=side, slot=None, subbed_off=False
+        ).prefetch_related("prospect")
+        if in_row is None:
+            errors["entra"] = "Ese suplente ya no está en el banquillo."
+    else:
+        name = (form.get("nombre") or "").strip()[:_MAX_TEXT]
+        number = _number(form.get("dorsal"))
+        if not name and number is None:
+            errors["entra"] = "Elige un suplente o escribe el nombre o el dorsal de quien entra."
+        elif not errors:
+            prospect = await _resolve(Storage(), session, _team(session, side), name, number, None)
+            in_row = await MatchPlayer.get_or_none(session_id=session_id, prospect_id=prospect.id)
+            if in_row is not None and (in_row.slot is not None or in_row.subbed_off):
+                errors["entra"] = "Ese jugador ya ha jugado en este partido."
+                in_row = None
+            elif in_row is None:
+                in_row = await MatchPlayer.create(session_id=session_id, prospect_id=prospect.id,
+                                                  side=side, slot=None, shirt_number=number)
+            await in_row.fetch_related("prospect")
+    if errors:
+        context = await _sub_context(session, errors, {**form, "lado": side})
+        return _render(request, "substitution.html", context, status_code=status.HTTP_400_BAD_REQUEST)
+
+    slot = out_row.slot
+    await MatchPlayer.filter(id=out_row.id).update(slot=None, subbed_off=True, sub_minute=minute)
+    await MatchPlayer.filter(id=in_row.id).update(
+        slot=slot, came_on_for_id=out_row.prospect_id, sub_minute=minute
+    )
+    team = _team(session, side)
+    await Observation.create(
+        session_id=session_id, prospect_id=in_row.prospect_id, side=side, team=team,
+        player_name=in_row.prospect.name or None, player_number=in_row.shirt_number,
+        source=SOURCE_WEB, minute=minute, is_substitution=True,
+        raw_quote=f"Entra {_player_label(in_row)} por {_player_label(out_row)}",
+    )
+    return RedirectResponse(f"/dashboard/partidos/{session_id}/campo", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post(
+    "/partidos/{session_id}/cambio/{row_id}/deshacer", dependencies=[Depends(auth.require_dashboard)]
+)
+async def substitution_undo(request: Request, session_id: int, row_id: int, csrf: str = Form(default="")):
+    """Undo a change: the player who went off returns to his slot and the one
+    who came on goes back to the bench. Only possible while that slot is still
+    his (a later change on the same slot is undone first)."""
+    auth.require_csrf(csrf)
+    in_row = await MatchPlayer.get_or_none(id=row_id, session_id=session_id, came_on_for_id__not_isnull=True)
+    if in_row is not None and in_row.slot is not None:
+        out_row = await MatchPlayer.get_or_none(
+            session_id=session_id, prospect_id=in_row.came_on_for_id, subbed_off=True
+        )
+        if out_row is not None:
+            await MatchPlayer.filter(id=out_row.id).update(slot=in_row.slot, subbed_off=False, sub_minute=None)
+            await MatchPlayer.filter(id=in_row.id).update(slot=None, came_on_for_id=None, sub_minute=None)
+            await Observation.filter(
+                session_id=session_id, prospect_id=in_row.prospect_id, is_substitution=True, source=SOURCE_WEB
+            ).delete()
+    return RedirectResponse(f"/dashboard/partidos/{session_id}/campo", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/partidos/{session_id}/finalizar", dependencies=[Depends(auth.require_dashboard)])

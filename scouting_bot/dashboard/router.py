@@ -214,6 +214,7 @@ async def matches_page(
     estado: str | None = None,
     desde: str | None = None,
     hasta: str | None = None,
+    aviso: str | None = None,
 ):
     data = await queries.list_matches(
         competition=competicion or None,
@@ -228,7 +229,7 @@ async def matches_page(
         "hasta": hasta or "",
     }
     filters["any"] = any(filters.values())
-    return _render(request, "matches.html", {**data, "filters": filters})
+    return _render(request, "matches.html", {**data, "filters": filters, "aviso": aviso})
 
 
 @router.get(

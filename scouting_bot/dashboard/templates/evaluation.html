@@ -74,7 +74,8 @@
 </div>
 {% endif %}
 
-<form class="form sheet{% if profile %} sheet-tabbed{% endif %}" method="post" action="" data-autosave>
+<form class="form sheet{% if profile %} sheet-tabbed{% endif %}" method="post" action="" data-autosave
+      data-csrf-field="{{ csrf_field }}" data-updated="{{ updated_ms }}">
   <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
   <input type="hidden" name="perfil" value="{{ profile.key if profile else '' }}">
 

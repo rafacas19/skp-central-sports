@@ -326,3 +326,95 @@ async def test_sheet_has_a_tab_per_section_with_live_counts(client):
         assert f'<span class="tab-label">{label}</span>' in page.text
     # Without JavaScript every section is on the page and Guardar is there.
     assert page.text.count("data-section") == 6 and "data-save>Guardar" in page.text
+
+
+# ── Scores as the client's workbook (build list #1) ──────────────────────
+async def test_scores_excel_follows_the_clients_workbook(client):
+    import io
+
+    import openpyxl
+
+    from scouting_bot.models import MatchPlayer
+
+    match = await _match()
+    lateral_a = await _player("Camilo Restrepo", position="Lateral izquierdo")
+    lateral_b = await _player("Luis Arias", position="Lateral derecho")
+    keeper = await _player("Kevin Mier", position="Portero")
+    await MatchPlayer.create(session=match, prospect=lateral_a, side="home", slot=1, shirt_number=3)
+    await save_evaluation(match, lateral_a, profile=get_profile("lateral"), raw_scores=CLIENT_EXAMPLE,
+                          build_ok=True, height_ok=False)
+    await save_evaluation(match, lateral_b, profile=get_profile("lateral"), raw_scores={"1.1": 2})
+    await save_evaluation(match, keeper, profile=None, raw_scores={}, single_rating=4.0)
+
+    resp = await client.get(f"/dashboard/partidos/{match.id}/evaluaciones.xlsx")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/vnd.openxmlformats")
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    assert wb.sheetnames == ["Lateral", "Sin perfil"]
+    ws = wb["Lateral"]
+    rows = [[c.value for c in r] for r in ws.iter_rows()]
+    assert rows[0][0] == "DETECCIÓN DE TALENTO" and rows[1][0] == "PERFIL POR POSICIÓN: LATERAL"
+    assert rows[3][:5] == ["Código", "Criterio", "Descripción", "3 · Camilo Restrepo", "Luis Arias"]
+    assert rows[4][0] == "1. TÉCNICA"
+    control = next(r for r in rows if r[0] == "1.1")
+    assert (control[1], control[3], control[4]) == ("Control", 4, 2)
+    assert next(r for r in rows if r[1] == "Atlético")[3:5] == ["Sí", None]
+    assert next(r for r in rows if r[1] == "Mediano")[3] == "No"
+    assert next(r for r in rows if r[1] == "VALORACIÓN DEL PARTIDO (media)")[3:5] == [3.46, 2.0]
+    keeper_rows = [[c.value for c in r] for r in wb["Sin perfil"].iter_rows()]
+    assert ["Kevin Mier", 4.0] in keeper_rows
+
+    page = await client.get(f"/dashboard/partidos/{match.id}")
+    assert f"/dashboard/partidos/{match.id}/evaluaciones.xlsx" in page.text
+
+
+async def test_scores_excel_of_an_unscored_match_still_opens(client):
+    import io
+
+    import openpyxl
+
+    match = await _match()
+    resp = await client.get(f"/dashboard/partidos/{match.id}/evaluaciones.xlsx")
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    assert wb.sheetnames == ["Evaluaciones"]
+
+
+# ── AI summary reads the scores (build list #5) ──────────────────────────
+async def test_the_ai_summary_gets_the_scores_and_refreshes_on_rescoring(client, monkeypatch):
+    from scouting_bot.ai.mock import MockAIProvider
+    from scouting_bot.dashboard import summaries
+
+    seen = []
+    original = MockAIProvider.summarize_player
+
+    async def spy(self, observations, evaluations=None):
+        seen.append((observations, evaluations))
+        return await original(self, observations, evaluations)
+
+    monkeypatch.setattr(MockAIProvider, "summarize_player", spy)
+    match, player = await _match(), await _player(position="Lateral izquierdo")
+    await save_evaluation(match, player, profile=get_profile("lateral"), raw_scores=CLIENT_EXAMPLE)
+
+    page = await client.get(f"/dashboard/jugadores/{player.id}")
+    assert "Puntuado por perfil en 1 partido(s)" in page.text
+    observations, sheets = seen[-1]
+    assert observations == []  # the sheet's stand-in text is not sent as a note
+    assert sheets[0]["profile"] == "Lateral" and sheets[0]["rating"] == 3.46
+    tecnica = sheets[0]["sections"][0]
+    assert tecnica["section"] == "Técnica" and tecnica["average"] == "3,5"
+    assert "Control" in tecnica["strengths"] and tecnica["weaknesses"] == []
+
+    # Re-scoring changes no observation count, but the summary still refreshes.
+    calls = len(seen)
+    await save_evaluation(match, player, profile=get_profile("lateral"), raw_scores={"1.1": 1})
+    await client.get(f"/dashboard/jugadores/{player.id}")  # stale → background refresh
+    assert len(seen) == calls + 1
+    await client.get(f"/dashboard/jugadores/{player.id}")  # fresh now → no new call
+    assert len(seen) == calls + 1
+
+
+async def test_bot_player_report_includes_the_scores(service, storage):
+    match, player = await _match(), await _player(position="Lateral izquierdo")
+    await save_evaluation(match, player, profile=get_profile("lateral"), raw_scores=CLIENT_EXAMPLE)
+    result = await service.player_report(1, "Camilo Restrepo")
+    assert "Puntuado por perfil" in result[2]

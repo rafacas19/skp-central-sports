@@ -1,18 +1,24 @@
 {% extends "base.html" %}
-{% block title %}Nuevo partido — Panel de Scouting{% endblock %}
+{% block title %}{{ "Editar partido" if edit else "Nuevo partido" }} — Panel de Scouting{% endblock %}
 {% block content %}
+{% if edit %}
+<p><a class="back" href="/dashboard/partidos/{{ edit.id }}">← {{ edit.title }}</a></p>
+<h1>Editar partido</h1>
+{% if not edit.teams %}<p class="muted">Este partido se capturó con el bot: los equipos no se pueden renombrar aquí, porque son los nombres con los que el bot reconoció tus notas.</p>{% endif %}
+{% else %}
 <p><a class="back" href="/dashboard/partidos">← Partidos</a></p>
+<p class="steps" aria-label="Paso 1 de 3"><span class="current">Equipos</span><span>Sistema</span><span>Jugadores</span></p>
 <h1>Nuevo partido</h1>
-<p class="muted">Después pones las alineaciones y puntúas a cada jugador desde el campo.</p>
+{% endif %}
 
-<form class="form" method="post" action="/dashboard/partidos/nuevo">
+<form class="form" method="post" action="{{ '/dashboard/partidos/%d/editar' % edit.id if edit else '/dashboard/partidos/nuevo' }}">
   <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
   <fieldset>
     <legend>Equipos</legend>
     <div class="form-grid">
       {% for field, label, hint in [("local", "Local", "Ej. Santa Fe U18 — la categoría se separa sola"), ("visitante", "Visitante", "")] %}
       <label>{{ label }}
-        <input name="{{ field }}" value="{{ values[field] }}" required maxlength="120" autocomplete="off">
+        <input name="{{ field }}" value="{{ values[field] }}" required maxlength="120" autocomplete="off"{% if edit and not edit.teams %} readonly aria-readonly="true"{% endif %}>
         {% if hint %}<span class="hint">{{ hint }}</span>{% endif %}
         {% if errors[field] %}<span class="field-error">{{ errors[field] }}</span>{% endif %}
       </label>
@@ -41,8 +47,9 @@
     </div>
   </fieldset>
   <div class="form-actions">
-    <button type="submit" class="primary">Crear y poner alineaciones</button>
-    <a class="button-link" href="/dashboard/partidos">Cancelar</a>
+    <button type="submit" class="primary">{{ "Guardar cambios" if edit else "Continuar: sistema" }}</button>
+    <a class="button-link" href="{{ '/dashboard/partidos/%d' % edit.id if edit else '/dashboard/partidos' }}">Cancelar</a>
+    {% if edit and edit.teams %}<a class="button-link danger" href="/dashboard/partidos/{{ edit.id }}/borrar">Borrar partido</a>{% endif %}
   </div>
 </form>
 {% endblock %}

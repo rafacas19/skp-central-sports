@@ -1229,3 +1229,17 @@ h1 { overflow-wrap: anywhere; }
   table.stack-wide td.num { text-align: left; }
   table.stack-wide td[data-label="Contacto"] { grid-column: 1 / -1; }
 }
+
+/* ── Substitutions ── */
+.sub-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 6px; }
+.sub-sides { width: 100%; }
+.sub-sides label { flex: 1; }
+.sub-sides span { width: 100%; padding: 0 12px; }
+.token-sub {
+  position: absolute; top: -4px; left: 2px; min-width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: #22c55e; color: #052e16; font-size: 0.75rem; font-weight: 900;
+}
+.bench-item { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bench-player.off { opacity: 0.75; border-style: dashed; }
+.bench-off { color: var(--danger); font-weight: 800; font-size: 0.8rem; }

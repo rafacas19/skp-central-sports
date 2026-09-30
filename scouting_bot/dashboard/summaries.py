@@ -1,9 +1,10 @@
 """Cached per-player AI summaries for the profile page (stale-while-revalidate).
 
-Cost model: one LLM call per player per new batch of observations, never per
-view. The cache lives on the prospect row (`ai_summary`) together with the
-observation count it was generated from (`ai_summary_obs_count`); a drifted
-count marks the summary stale.
+Cost model: one LLM call per player per new batch of observations or score
+sheets, never per view. The cache lives on the prospect row (`ai_summary`)
+together with the observation count (`ai_summary_obs_count`) and a fingerprint
+of the score sheets (`ai_summary_marker`) it was generated from; either one
+drifting marks the summary stale — re-scoring a match changes no count.
 
 Latency model: a page never waits for the LLM except the very first view of a
 player. A stale summary is served as-is and refreshed after the response via
@@ -19,6 +20,7 @@ import logging
 from fastapi import BackgroundTasks
 
 from ..ai import get_provider
+from ..evaluations import is_placeholder_quote, sheets_marker, summary_payload
 from ..models import Observation, Prospect
 from ..service import obs_to_summary_dict
 
@@ -34,8 +36,10 @@ async def get_or_refresh(prospect_id: int, background: BackgroundTasks) -> dict:
     count = await Observation.filter(prospect_id=prospect_id).count()
     if count == 0:
         return none  # nothing to summarize
+    marker = await sheets_marker(prospect_id)
 
-    if prospect.ai_summary and prospect.ai_summary_obs_count == count:
+    fresh = prospect.ai_summary_obs_count == count and (prospect.ai_summary_marker or "") == marker
+    if prospect.ai_summary and fresh:
         return {"text": prospect.ai_summary, "refreshing": False, "failed": False}
 
     if prospect.ai_summary:
@@ -58,10 +62,14 @@ async def refresh(prospect_id: int) -> str:
         .order_by("created_at", "id")
         .prefetch_related("session")
     )
-    payload = [obs_to_summary_dict(o) for o in observations]
-    text = await get_provider().summarize_player(payload)
+    # A score sheet's stand-in text ("Evaluación por perfil: Lateral") says
+    # nothing; the sheet itself goes in as scores.
+    payload = [obs_to_summary_dict(o) for o in observations if not is_placeholder_quote(o.raw_quote)]
+    sheets = await summary_payload(prospect_id)
+    text = await get_provider().summarize_player(payload, sheets or None)
     await Prospect.filter(id=prospect_id).update(
-        ai_summary=text, ai_summary_obs_count=len(observations)
+        ai_summary=text, ai_summary_obs_count=len(observations),
+        ai_summary_marker=await sheets_marker(prospect_id),
     )
     return text
 
