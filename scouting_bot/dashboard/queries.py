@@ -15,13 +15,19 @@ from zoneinfo import ZoneInfo
 
 from ..categories import split_category
 from ..models import (
+    AWAY,
     CONTACT_NONE,
     CONTACT_STATUSES,
     DECISION_ADVANCE,
+    HOME,
+    ORIGIN_WEB,
     RATING_DECISIONS,
     SESSION_ACTIVE,
+    Evaluation,
+    MatchPlayer,
     Observation,
     Prospect,
+    ProspectPhoto,
     Session,
     Squad,
     SquadMember,
@@ -30,6 +36,7 @@ from ..models import (
 )
 from ..positions import (
     CATEGORIES,
+    ROLES,
     canonical_position,
     category_index,
     position_abbr,
@@ -76,7 +83,7 @@ def _first_number(p: Prospect) -> int | None:
     for o in getattr(p, "observations", []) or []:
         if o.player_number is not None:
             return o.player_number
-    return None
+    return p.shirt_number  # a lineup slot filled with only a number
 
 
 def _ordered_labels(present: set[str]) -> list[str]:
@@ -98,7 +105,7 @@ def _initials(p: Prospect) -> str:
     return f"#{number}" if number is not None else "?"
 
 
-def _player_row(p: Prospect) -> dict:
+def _player_row(p: Prospect, web_photos: frozenset[int] = frozenset()) -> dict:
     """The list/card representation of a prospect (observations prefetched).
 
     `position` stays the scout's own words; `position_abbr`/`position_category`
@@ -129,10 +136,15 @@ def _player_row(p: Prospect) -> dict:
         # Card presentation: how the player is shown, and how much to trust the
         # rating (a single viewing is a weaker claim than four).
         "initials": _initials(p),
-        "has_photo": bool(p.photo_file_id),
+        "has_photo": bool(p.photo_file_id) or p.id in web_photos,
         "single_match": matches <= 1,
         "trend": None,
     }
+
+
+async def _web_photo_ids() -> frozenset[int]:
+    """Players with a photo uploaded on the panel (ids only — never the bytes)."""
+    return frozenset(await ProspectPhoto.all().values_list("prospect_id", flat=True))
 
 
 def _rows_sorted(rows: list[dict]) -> list[dict]:
@@ -237,10 +249,11 @@ async def overview() -> dict:
     by_session = {s.id: s for s in sessions}
     featured_rank = {label: i for i, label in enumerate(FEATURED_DECISIONS)}
     cards = []
+    web_photos = await _web_photo_ids()
     for p in prospects:
         if prospect_decision(p) not in featured_rank:
             continue
-        row = _player_row(p)
+        row = _player_row(p, web_photos)
         row["trend"] = _rating_trend(p, by_session)
         cards.append(row)
     # One list rather than a section per decision: these are all "act on this
@@ -414,7 +427,8 @@ async def list_players(
     against the same normalized columns the bot keys identities on). Returns the
     values actually present for each dropdown, so no filter offers a dead end."""
     prospects = await Prospect.all().prefetch_related("observations")
-    all_rows = [_player_row(p) for p in prospects]
+    web_photos = await _web_photo_ids()
+    all_rows = [_player_row(p, web_photos) for p in prospects]
 
     rows = []
     for p, row in zip(prospects, all_rows):
@@ -474,7 +488,8 @@ async def decision_board(
     Within a decision, players are grouped by position category in pitch order:
     a shortlist is read position by position, never as one flat ranking."""
     prospects = await Prospect.all().prefetch_related("observations")
-    all_rows = [_player_row(p) for p in prospects]
+    web_photos = await _web_photo_ids()
+    all_rows = [_player_row(p, web_photos) for p in prospects]
     await _add_trends(list(prospects), all_rows)
 
     kept = [
@@ -584,6 +599,7 @@ async def player_detail(prospect_id: int) -> dict | None:
             "origin_club": p.origin_club,
             "agent_name": p.agent_name,
             "agent_phone": p.agent_phone,
+            "video_url": p.video_url,
             "market_value_usd": p.market_value_usd,
             "contract_year": p.contract_year,
             "rating": p.latest_rating,
@@ -686,9 +702,10 @@ async def merge_candidates(prospect_id: int) -> dict | None:
         same_team = bool(keep.normalized_team) and p.normalized_team == keep.normalized_team
         return (not same_name, not same_team, display_name(p).lower())
 
+    web_photos = await _web_photo_ids()
     return {
-        "keep": _player_row(keep),
-        "candidates": [_player_row(p) for p in sorted(others, key=rank)],
+        "keep": _player_row(keep, web_photos),
+        "candidates": [_player_row(p, web_photos) for p in sorted(others, key=rank)],
     }
 
 
@@ -733,6 +750,7 @@ async def match_detail(session_id: int) -> dict | None:
             "location": s.location,
             "scout_name": s.scout_name,
             "is_active": s.state == SESSION_ACTIVE,
+            "is_web": s.origin == ORIGIN_WEB,
             "first_half_started_at": s.first_half_started_at,
             "second_half_started_at": s.second_half_started_at,
             "ended_at": s.ended_at,
@@ -741,7 +759,47 @@ async def match_detail(session_id: int) -> dict | None:
         },
         "timeline": timeline,
         "team_notes": team_notes,
+        "roster": await match_roster(s, obs),
+        "home_side": HOME,
+        "away_side": AWAY,
+        "roles": [r.role for r in ROLES],
     }
+
+
+async def match_roster(s: Session, obs: list[Observation]) -> list[dict]:
+    """Every player of the match that can be scored: those noted in it and
+    those already evaluated, home side first, then by shirt number and name."""
+    evaluations = {
+        e.prospect_id: e for e in await Evaluation.filter(session_id=s.id)
+    }
+    lineup = {m.prospect_id: m for m in await MatchPlayer.filter(session_id=s.id)}
+    ids = {o.prospect_id for o in obs if o.prospect_id and not o.is_team_note}
+    ids |= set(evaluations) | set(lineup)
+    if not ids:
+        return []
+    prospects = await Prospect.filter(id__in=ids).prefetch_related("observations")
+    home = normalize_name(s.home_team)
+    rows = []
+    for p in prospects:
+        e = evaluations.get(p.id)
+        m = lineup.get(p.id)
+        number = m.shirt_number if m is not None and m.shirt_number is not None else None
+        if number is None:
+            number = p.shirt_number if p.shirt_number is not None else _first_number(p)
+        rows.append(
+            {
+                "id": p.id,
+                "name": display_name(p),
+                "team": p.team,
+                "number": number,
+                "evaluated": e is not None,
+                "rating": e.rating if e is not None else None,
+                "_home": m.side == HOME if m is not None else normalize_name(p.team or "") == home,
+            }
+        )
+    rows.sort(key=lambda r: (not r["_home"], r["number"] is None, r["number"] or 0,
+                             normalize_name(r["name"])))
+    return rows
 
 
 # ── Selecciones (national squads) ────────────────────────────────────────

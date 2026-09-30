@@ -36,6 +36,7 @@ from telegram.ext import (
 
 from .ai import get_provider
 from .config import settings
+from .evaluations import MergeConflict
 from .models import HOME, Session
 from .report import (
     build_historical_workbook,
@@ -793,7 +794,11 @@ async def _resolve_merge(query, context, data: str) -> None:
         await query.edit_message_text("Ok, los mantengo como jugadores distintos.")
         return
     keep_id, drop_id = int(parts[1]), int(parts[2])
-    await _svc(context).merge(keep_id, drop_id)
+    try:
+        await _svc(context).merge(keep_id, drop_id)
+    except MergeConflict as exc:
+        await query.edit_message_text(f"⚠️ No los uní: {exc}")
+        return
     await query.edit_message_text("🔗 Jugadores unidos.")
 
 
@@ -807,8 +812,12 @@ async def _resolve_dedup(query, context, data: str) -> None:
         await query.edit_message_text("Ok, los mantengo como jugadores distintos.")
     else:
         keep_id, drop_id = int(parts[1]), int(parts[2])
-        await _svc(context).merge(keep_id, drop_id)
-        await query.edit_message_text("🔗 Jugadores unidos.")
+        try:
+            await _svc(context).merge(keep_id, drop_id)
+            await query.edit_message_text("🔗 Jugadores unidos.")
+        except MergeConflict as exc:
+            # Keep the queue moving: the scout can merge from the panel later.
+            await query.edit_message_text(f"⚠️ No los uní: {exc}")
 
     # Pop the answered dedup head and drive the next pending step (which may be
     # the finalize sentinel → builds + sends the report).

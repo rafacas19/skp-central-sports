@@ -8,6 +8,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# System libraries for WeasyPrint (the profile report PDF): Pango for text
+# layout, plus metric-compatible fonts so the report looks the same everywhere.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 \
+        fonts-liberation fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install deps first for better layer caching.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

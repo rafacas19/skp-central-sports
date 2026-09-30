@@ -11,6 +11,7 @@ entered as 180), not to argue with the scout about what a footballer looks like.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 from ..categories import split_category
@@ -42,6 +43,7 @@ INT_FIELDS: dict[str, tuple[str, int, int, str]] = {
 }
 
 ROLE_NAMES = tuple(p.role for p in ROLES)
+_URL_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
 DECISION_LABELS = tuple(RATING_DECISIONS[r] for r in (5, 4, 3, 2, 1))
 # Ratings the form offers: whole and half steps across the 1–5 scale.
 RATING_CHOICES = ("1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5")
@@ -79,6 +81,15 @@ def parse_player_form(
             errors[form_name] = f"Máximo {max_len} caracteres."
             continue
         updates[field] = value or None
+
+    # Highlights link: a plain web address the report prints as "VIDEO".
+    video = (form.get("video") or "").strip()
+    if len(video) > 500:
+        errors["video"] = "Máximo 500 caracteres."
+    elif video and not _URL_RE.match(video):
+        errors["video"] = "Pon un enlace que empiece por http:// o https://."
+    else:
+        updates["video_url"] = video or None
 
     for form_name, (field, low, high, label) in INT_FIELDS.items():
         raw = (form.get(form_name) or "").strip()

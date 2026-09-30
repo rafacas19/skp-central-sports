@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Campo — {{ match.home_team }} vs {{ match.away_team }}{% endblock %}
+{% block body_class %}screen-pitch{% endblock %}
+{% block chrome %}{% include "_match_bar.html" %}{% endblock %}
+{% block footer %}{% endblock %}
+{% block content %}
+{% if has_lineup %}
+<div class="pitch" role="group" aria-label="Campo: {{ match.away_team }} arriba, {{ match.home_team }} abajo" aria-describedby="pitch-hint">
+  <div class="pitch-lines" aria-hidden="true">
+    <span class="pitch-half"></span><span class="pitch-circle"></span><span class="pitch-spot"></span>
+    <span class="pitch-box top"></span><span class="pitch-box bottom"></span>
+    <span class="pitch-goal top"></span><span class="pitch-goal bottom"></span>
+  </div>
+  <span class="pitch-team top" aria-hidden="true">{{ match.away_team }}</span>
+  <span class="pitch-team bottom" aria-hidden="true">{{ match.home_team }}</span>
+  {% for t in tokens %}
+  {% set cls = "token " ~ t.side ~ (" done" if t.evaluated else "") ~ (" unnamed" if t.unnamed else "") ~ (" empty" if t.empty else "") %}
+  {% set shirt = t.number if t.number != "" else "" %}
+  {% if t.empty %}
+  <form class="token-form" method="post" action="/dashboard/partidos/{{ match.id }}/puesto/{{ t.side }}/{{ t.slot }}">
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+    <button type="submit" class="{{ cls }}" style="--x: {{ t.left }}; --y: {{ t.top }}"
+            aria-label="{{ t.role }}, sin jugador asignado: puntuar este puesto">
+      <span class="shirt" aria-hidden="true"></span>
+      <span class="token-name" aria-hidden="true">{{ t.label }}</span>
+    </button>
+  </form>
+  {% else %}
+  <a class="{{ cls }}" style="--x: {{ t.left }}; --y: {{ t.top }}"
+     href="/dashboard/partidos/{{ match.id }}/jugadores/{{ t.id }}/evaluar"
+     aria-label="{{ t.name }}{% if t.number != '' %}, dorsal {{ t.number }}{% endif %}, {{ t.role }}{% if t.rating is not none %}, puntuado {{ t.rating | valoracion }}{% else %}, sin puntuar{% endif %}">
+    <span class="shirt" aria-hidden="true">{{ shirt }}</span>
+    <span class="token-name" aria-hidden="true">{{ t.label }}</span>
+    {% if t.rating is not none %}<span class="token-rating" aria-hidden="true">{{ t.rating | valoracion }}</span>{% endif %}
+  </a>
+  {% endif %}
+  {% endfor %}
+</div>
+
+<section class="pitch-below">
+  <p id="pitch-hint" class="pitch-hint">
+    Toca un jugador para puntuarlo. Los puestos vacíos también se pueden puntuar; el nombre y el dorsal se añaden cuando quieras{% if unnamed %} · {{ unnamed }} sin identificar{% endif %}.
+  </p>
+  {% for b in benches %}
+  {% if b.players %}
+  <div class="bench">
+    <h2 class="bench-title">Suplentes · {{ b.team }}</h2>
+    <div class="bench-list">
+      {% for p in b.players %}
+      <a class="bench-player{% if p.evaluated %} done{% endif %}" href="/dashboard/partidos/{{ match.id }}/jugadores/{{ p.id }}/evaluar">
+        <span class="bench-number">{{ p.number }}</span>
+        <span class="bench-name">{{ "Sin nombre" if p.unnamed else p.name }}</span>
+        {% if p.rating is not none %}<span class="bench-rating">{{ p.rating | valoracion }}</span>{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</section>
+{% else %}
+<div class="pitch-empty">
+  <p><strong>Todavía no hay alineaciones.</strong></p>
+  <p class="muted">Pon los dorsales o los nombres de los dos equipos y aparecerán aquí, listos para puntuar.</p>
+  <a class="button-link primary" href="/dashboard/partidos/{{ match.id }}/alineacion">Poner alineaciones</a>
+</div>
+{% endif %}
+{% endblock %}

@@ -23,7 +23,7 @@ su equipo y aparece además en la lista que le corresponda.</p>
 {% if error %}<p class="field-error">{{ error }}</p>{% endif %}
 
 {% if squads %}
-<table>
+<table class="stack">
   <thead>
     <tr><th>Selección</th><th>Categoría</th><th class="num">Jugadores</th><th></th></tr>
   </thead>
@@ -31,9 +31,9 @@ su equipo y aparece además en la lista que le corresponda.</p>
     {% for s in squads %}
     <tr>
       <td><a href="/dashboard/selecciones/{{ s.id }}">{{ s.name }}</a></td>
-      <td>{% if s.category %}<span class="chip small">{{ s.category }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td class="num">{{ s.players }}</td>
-      <td><a href="/dashboard/selecciones/{{ s.id }}/excel">Excel</a></td>
+      <td data-label="Categoría">{% if s.category %}<span class="chip small">{{ s.category }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td data-label="Jugadores" class="num">{{ s.players }}</td>
+      <td data-label=""><a href="/dashboard/selecciones/{{ s.id }}/excel">Excel</a></td>
     </tr>
     {% endfor %}
   </tbody>

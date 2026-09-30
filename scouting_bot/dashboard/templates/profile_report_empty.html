@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Informe de {{ player.name }} — Panel de Scouting{% endblock %}
+{% block content %}
+<p><a class="back" href="/dashboard/jugadores/{{ player.id }}">← {{ player.name }}</a></p>
+<h1>Informe de perfil</h1>
+<p class="muted">Todavía no hay evaluaciones por perfil de este jugador. Puntúalo desde un partido (Partidos → Evaluar) y el informe aparecerá aquí.</p>
+{% endblock %}

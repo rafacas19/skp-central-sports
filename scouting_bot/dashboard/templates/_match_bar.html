@@ -1,0 +1,26 @@
+{# Match chrome for the pitch and the score sheet: the phone screen belongs to
+   the field, so the site menu folds into this bar's actions. Expects `bar` =
+   {back, back_label, title, meta, actions[{href|post, label, icon, danger}]}. #}
+{% from "_icons.html" import icon %}
+<header class="matchbar">
+  <a class="icon-button" href="{{ bar.back }}">{{ icon("back", bar.back_label) }}</a>
+  <div class="matchbar-title">
+    <strong>{{ bar.title }}</strong>
+    {% if bar.meta %}<span>{{ bar.meta }}</span>{% endif %}
+  </div>
+  <details class="menu matchbar-menu" data-menu>
+    <summary class="icon-button">{{ icon("more", "Más acciones") }}</summary>
+    <nav class="menu-sheet" aria-label="Acciones del partido">
+      {% for a in bar.actions %}
+      {% if a.post %}
+      <form class="{{ 'menu-sep' if a.danger else '' }}" method="post" action="{{ a.post }}">
+        <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+        <button type="submit" class="{{ 'danger' if a.danger else '' }}">{{ icon(a.icon) }}{{ a.label }}</button>
+      </form>
+      {% else %}
+      <a href="{{ a.href }}" class="{{ 'menu-sep' if a.sep else '' }}">{{ icon(a.icon) }}{{ a.label }}</a>
+      {% endif %}
+      {% endfor %}
+    </nav>
+  </details>
+</header>

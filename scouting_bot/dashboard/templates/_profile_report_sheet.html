@@ -1,0 +1,65 @@
+{# The report page itself, shared by the screen view and the PDF. Laid out like
+   the client's own report (feedback/Perfiles_Scout__EJ.pdf). #}
+<article class="pr-sheet{% if sheet.matches | length > 3 %} pr-many{% endif %}">
+  <header class="pr-head">
+    <div class="pr-id">
+      {% if photo_src %}<img class="pr-photo" src="{{ photo_src }}" alt="">
+      {% elif player.has_photo and not pdf %}<img class="pr-photo" src="/dashboard/foto/{{ player.id }}" alt="">
+      {% else %}<div class="pr-photo pr-initials">{{ player.name[:1] }}</div>{% endif %}
+      <p class="pr-kicker">DETECCIÓN DE TALENTO</p>
+      <p class="pr-profile">PERFIL: {{ sheet.role | upper }}</p>
+    </div>
+    <div class="pr-intro">
+      <h1 class="pr-name">{{ player.name | upper }}</h1>
+      {% if text.summary %}<p class="pr-summary">{{ text.summary }}</p>
+      {% elif not pdf %}<p class="pr-summary pr-empty">Sin resumen todavía.</p>{% endif %}
+    </div>
+  </header>
+
+  <table class="pr-table">
+    <colgroup>
+      <col class="c-code"><col class="c-name"><col class="c-desc">
+      {% for m in sheet.matches %}<col class="c-score">{% endfor %}
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Código</th><th>Criterio</th><th>Descripción</th>
+        {% for m in sheet.matches %}<th class="pr-match">{{ m.label }}<br><span>{{ m.date | fecha }} · {{ m.opponent }}</span><br><span>Puntuación 1 a 5</span></th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in sheet.sections %}
+      <tr class="pr-section"><td colspan="{{ 3 + sheet.matches | length }}">{{ s.header }}</td></tr>
+      {% for c in s.criteria %}
+      <tr>
+        <td class="pr-code">{{ c.code }}</td>
+        <td class="pr-crit">{{ c.name }}</td>
+        <td class="pr-desc">{{ c.description }}</td>
+        {% for v in c.scores %}<td class="pr-score">{{ v if v is not none else "" }}</td>{% endfor %}
+      </tr>
+      {% endfor %}
+      {% endfor %}
+      {% for label, row in [("6. CONTEXTURA", sheet.build), ("7. ESTATURA", sheet.height)] %}
+      <tr class="pr-section"><td colspan="{{ 3 + sheet.matches | length }}">{{ label }}</td></tr>
+      <tr>
+        <td></td><td class="pr-crit">{{ row.expected }}</td><td></td>
+        {% for v in row["values"] %}<td class="pr-score">{{ v }}</td>{% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <section class="pr-obs">
+    <h2>OBSERVACIONES</h2>
+    <div class="pr-obs-cols">
+      {% for s in sheet.sections %}
+      <div class="pr-obs-block">
+        <h3>{{ s.number }}. {{ s.title }} — {{ s.average }}/5</h3>
+        {% set body = text.sections.get(s.number | string) %}
+        {% if body %}<p>{{ body }}</p>{% elif not pdf %}<p class="pr-empty">Sin texto todavía.</p>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% if player.video_url %}<p class="pr-video"><a href="{{ player.video_url }}">VIDEO</a></p>{% endif %}
+  </section>
+</article>

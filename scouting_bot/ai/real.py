@@ -60,6 +60,27 @@ Observaciones (JSON):
 Devuelve solo el texto del perfil, sin encabezados ni JSON."""
 
 
+_PROFILE_REPORT_PROMPT = """Eres analista de detección de talento de un club de
+fútbol. Redactas la parte escrita del informe de perfil de un jugador a partir
+de sus puntuaciones (1 a 5) por criterio, en uno o varios partidos, y de las
+notas del ojeador.
+
+Datos (JSON):
+{report}
+
+Escribe en español, en tercera persona, con tono profesional y concreto:
+- "summary": 3 o 4 frases que describan al jugador en su posición: base sólida,
+  recursos que destacan y principales áreas de desarrollo.
+- "sections": un párrafo por cada sección (claves "1" a "5"). Menciona los
+  criterios más altos y los más bajos por su nombre, y cierra SIEMPRE con una
+  frase que empiece por "Conclusión:".
+Básate solo en los datos: no inventes acciones, goles ni rasgos que no estén en
+las puntuaciones o las notas. Si una sección no tiene puntuaciones, dilo en una
+frase.
+
+Devuelve SOLO JSON estricto: {{"summary": "...", "sections": {{"1": "...", "2": "...", "3": "...", "4": "...", "5": "..."}}}}"""
+
+
 class RealAIProvider(AIProvider):
     def __init__(self) -> None:
         import anthropic
@@ -106,6 +127,22 @@ class RealAIProvider(AIProvider):
             messages=[{"role": "user", "content": prompt}],
         )
         return msg.content[0].text.strip()
+
+    async def draft_profile_report(self, report: dict) -> dict:
+        prompt = _PROFILE_REPORT_PROMPT.format(report=json.dumps(report, ensure_ascii=False))
+        msg = await self._claude.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=2500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        data = _extract_json(msg.content[0].text)
+        if not data.get("summary") and not data.get("sections"):
+            raise ValueError("Claude returned no usable profile report text")
+        sections = data.get("sections") or {}
+        return {
+            "summary": str(data.get("summary") or "").strip(),
+            "sections": {str(k): str(v).strip() for k, v in sections.items()},
+        }
 
 
 def _note_from(raw: dict, full_text: str) -> ClassifiedNote:

@@ -96,6 +96,10 @@
         <input type="text" name="telefono_agente" value="{{ values.telefono_agente }}" maxlength="40">
         {{ field_error(errors, "telefono_agente") }}
       </label>
+      <label>Video (enlace)
+        <input type="url" name="video" value="{{ values.video }}" maxlength="500" placeholder="https://…">
+        {{ field_error(errors, "video") }}
+      </label>
     </div>
   </fieldset>
 

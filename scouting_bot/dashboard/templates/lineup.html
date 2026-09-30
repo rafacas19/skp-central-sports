@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Alineaciones — {{ match.home_team }} vs {{ match.away_team }}{% endblock %}
+{% block content %}
+<p><a class="back" href="/dashboard/partidos/{{ match.id }}">← {{ match.home_team }} vs {{ match.away_team }}</a></p>
+{% if new %}<p class="steps" aria-label="Paso 3 de 3"><span class="done">Equipos</span><span class="done">Sistema</span><span class="current">Jugadores</span></p>{% endif %}
+<div class="page-head">
+  <h1>Dorsales y nombres</h1>
+  <a class="button-link primary" href="/dashboard/partidos/{{ match.id }}/campo">{{ "Saltar, ver el campo" if new else "Ver el campo" }}</a>
+</div>
+<p class="muted">Todo es opcional: rellena solo los jugadores que te interesan, o salta este paso. Cada puesto aparece en el campo aunque esté vacío, y el nombre o el dorsal se pueden añadir después, también con el partido terminado.</p>
+
+<form class="form lineup" method="post" action="/dashboard/partidos/{{ match.id }}/alineacion">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  {% for s in sides %}
+  <fieldset class="lineup-side">
+    <legend>{{ s.team }}</legend>
+    <p class="lineup-formation">Sistema <strong>{{ s.formation }}</strong> · <a href="/dashboard/partidos/{{ match.id }}/sistema">cambiar</a></p>
+    <datalist id="known-{{ s.side }}">
+      {% for n in s.known %}<option value="{{ n }}">{% endfor %}
+    </datalist>
+    <table class="lineup-table">
+      <thead><tr><th>Puesto</th><th>Dorsal</th><th>Nombre</th></tr></thead>
+      <tbody>
+        {% for row in s.starters %}
+        <tr>
+          <td class="muted">{{ row.role }}</td>
+          <td><input name="{{ s.side }}-s{{ row.index }}-n" value="{{ row.number }}" inputmode="numeric" pattern="[0-9]*" maxlength="3" aria-label="Dorsal {{ row.role }}"></td>
+          <td><input name="{{ s.side }}-s{{ row.index }}-p" value="{{ row.name }}" list="known-{{ s.side }}" autocomplete="off" aria-label="Nombre {{ row.role }}"></td>
+        </tr>
+        {% endfor %}
+        <tr><td colspan="3" class="lineup-bench-head">Suplentes</td></tr>
+        {% for j, row in s.bench %}
+        <tr>
+          <td class="muted">Suplente</td>
+          <td><input name="{{ s.side }}-b{{ j }}-n" value="{{ row.number }}" inputmode="numeric" pattern="[0-9]*" maxlength="3" aria-label="Dorsal suplente"></td>
+          <td><input name="{{ s.side }}-b{{ j }}-p" value="{{ row.name }}" list="known-{{ s.side }}" autocomplete="off" aria-label="Nombre suplente"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </fieldset>
+  {% endfor %}
+  <div class="form-actions sheet-actions">
+    <button type="submit" class="button primary">Guardar y ver el campo</button>
+    <a class="button-link" href="/dashboard/partidos/{{ match.id }}/campo">{{ "Saltar" if new else "Cancelar" }}</a>
+  </div>
+</form>
+{% endblock %}

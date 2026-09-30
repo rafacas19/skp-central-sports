@@ -1,0 +1,85 @@
+/* Player profile report — the client's "Detección de talento" sheet.
+   One landscape US Letter page (their example's size); the same markup is
+   shown on screen and rendered to PDF by WeasyPrint. */
+
+@page { size: letter landscape; margin: 5mm 6mm; }
+
+.pr-sheet {
+  --pr-green: #14532d;
+  --pr-line: #b9cfc1;
+  --pr-band: #dfeee4;
+  font-family: "Liberation Sans", Arial, "Helvetica Neue", sans-serif;
+  color: #111;
+  font-size: 7pt;
+  line-height: 1.25;
+  background: #fff;
+}
+.pr-print { margin: 0; }
+
+/* Header: photo + profile on the left, name and summary beside it. */
+.pr-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 4px; }
+.pr-id { flex: 0 0 130px; text-align: center; }
+.pr-photo {
+  width: 54px; height: 64px; object-fit: cover; border-radius: 4px;
+  display: block; margin: 0 auto 2px; background: #e5ece8;
+}
+.pr-initials {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22pt; font-weight: 700; color: var(--pr-green);
+}
+.pr-kicker { margin: 0; font-weight: 700; color: var(--pr-green); font-size: 7.5pt; }
+.pr-profile { margin: 0; font-weight: 700; font-size: 7pt; }
+.pr-intro { flex: 1 1 auto; }
+.pr-name { margin: 0 0 2px; text-align: center; font-size: 16pt; letter-spacing: 0.02em; color: #111; }
+.pr-summary { margin: 0; font-size: 7.2pt; line-height: 1.22; }
+.pr-empty { color: #888; font-style: italic; }
+
+/* Criteria table. */
+.pr-table { width: 100%; border-collapse: collapse; table-layout: fixed; box-shadow: none; border-radius: 0; }
+.pr-table th, .pr-table td {
+  border: 0.5pt solid var(--pr-line);
+  padding: 0.5pt 2.5pt;
+  vertical-align: middle;
+  background: #fff;
+  font-size: inherit;
+}
+.pr-table thead th { background: var(--pr-green); color: #fff; font-weight: 700; font-size: 5pt; }
+.pr-table th.pr-match { font-size: 5pt; text-align: center; line-height: 1.05; }
+.pr-match span { font-weight: 400; font-size: 4.2pt; color: #e3f1e8; }
+.c-code { width: 3%; }
+.c-name { width: 13%; }
+.c-score { width: 5.5%; }
+.pr-table .pr-section td { background: var(--pr-band); font-weight: 700; color: var(--pr-green); font-size: 5.4pt; line-height: 1.1; }
+.pr-table .pr-crit { font-weight: 700; font-size: 5.4pt; line-height: 1.08; }
+.pr-table .pr-code { font-size: 5.2pt; text-align: center; }
+.pr-table .pr-desc { font-size: 4.7pt; line-height: 1.08; color: #222; }
+/* Many matches squeeze the description column: shrink its text to keep one page. */
+.pr-many .pr-table .pr-desc { font-size: 4.2pt; }
+.pr-table .pr-score { text-align: center; font-weight: 700; font-size: 6.4pt; line-height: 1.08; }
+
+/* Observations, in three columns like the example. */
+.pr-obs h2 {
+  margin: 4px 0 2px; text-align: center; font-size: 9pt; font-weight: 400;
+  letter-spacing: 0.08em; color: #111; border: none; padding: 0;
+}
+.pr-obs-cols { column-count: 3; column-gap: 14px; }
+.pr-obs-block { break-inside: avoid; margin-bottom: 3px; }
+.pr-obs-block h3 { margin: 0 0 1px; font-size: 7.2pt; color: var(--pr-green); }
+.pr-obs-block p { margin: 0; font-size: 6.8pt; line-height: 1.2; }
+.pr-video { text-align: right; margin: 2px 0 0; font-weight: 700; font-size: 10pt; }
+.pr-video a { color: #111; }
+
+/* Screen only: the sheet sits on a card and scrolls sideways on a phone. */
+.pr-screen { overflow-x: auto; margin-top: 12px; }
+.pr-screen .pr-sheet {
+  min-width: 900px; padding: 14px 16px;
+  border: 1px solid #d8e6dd; border-radius: 10px;
+}
+.pr-generate { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+
+@media print {
+  .topbar, footer, .pr-controls { display: none; }
+  main { max-width: none; padding: 0; }
+  .pr-screen { overflow: visible; margin: 0; }
+  .pr-screen .pr-sheet { min-width: 0; padding: 0; border: none; }
+}

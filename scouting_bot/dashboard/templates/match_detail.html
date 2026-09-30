@@ -2,9 +2,12 @@
 {% block title %}{{ match.home_team }} vs {{ match.away_team }} — Panel de Scouting{% endblock %}
 {% block content %}
 <p><a class="back" href="/dashboard/partidos">← Partidos</a></p>
-<h1>{{ match.home_team }} vs {{ match.away_team }}
-  {% if match.is_active %}<span class="badge live">En vivo</span>{% endif %}
-</h1>
+<div class="page-head">
+  <h1>{{ match.home_team }} vs {{ match.away_team }}
+    {% if match.is_active %}<span class="badge live">{{ "En curso" if match.is_web else "En vivo" }}</span>{% endif %}
+  </h1>
+  <a class="button-link primary" href="/dashboard/partidos/{{ match.id }}/campo">Campo</a>
+</div>
 
 <section class="meta">
   <div><span class="meta-label">Fecha</span>{{ match.date | fecha }}</div>
@@ -20,6 +23,44 @@
   {% endif %}
   <div><span class="meta-label">Jugadores</span>{{ match.players }}</div>
   <div><span class="meta-label">Observaciones</span>{{ match.observations }}</div>
+</section>
+
+<section id="evaluaciones">
+  <h2>Evaluaciones</h2>
+  {% if aviso == "faltan_datos" %}<p class="error">Escribe al menos el nombre o el dorsal del jugador.</p>{% endif %}
+  {% if roster %}
+  <ul class="roster">
+    {% for r in roster %}
+    <li>
+      <span><span class="who">{% if r.number is not none %}{{ r.number }} · {% endif %}{{ r.name }}</span>
+        {% if r.team %}<span class="muted">· {{ r.team }}</span>{% endif %}
+        {% if r.rating is not none %}<span class="chip small">{{ r.rating | valoracion }} / 5</span>{% endif %}
+      </span>
+      <a class="button-link{% if not r.evaluated %} primary{% endif %}" href="/dashboard/partidos/{{ match.id }}/jugadores/{{ r.id }}/evaluar">{{ "Ver evaluación" if r.evaluated else "Evaluar" }}</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Todavía no hay jugadores en este partido.</p>
+  {% endif %}
+  <form class="form inline-form" method="post" action="/dashboard/partidos/{{ match.id }}/evaluar">
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+    <label>Jugador <input name="nombre" placeholder="Nombre (opcional si pones dorsal)"></label>
+    <label>Equipo
+      <select name="lado">
+        <option value="{{ home_side }}">{{ match.home_team }}</option>
+        <option value="{{ away_side }}">{{ match.away_team }}</option>
+      </select>
+    </label>
+    <label>Dorsal <input name="dorsal" inputmode="numeric" pattern="[0-9]*" size="3"></label>
+    <label>Posición
+      <select name="posicion">
+        <option value="">—</option>
+        {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Evaluar otro jugador</button>
+  </form>
 </section>
 
 <section>

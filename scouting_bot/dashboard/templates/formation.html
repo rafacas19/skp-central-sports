@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Sistema — {{ match.home_team }} vs {{ match.away_team }}{% endblock %}
+{% block content %}
+<p><a class="back" href="/dashboard/partidos/{{ match.id }}{{ '/campo' if not new else '' }}">← {{ match.home_team }} vs {{ match.away_team }}</a></p>
+{% if new %}<p class="steps" aria-label="Paso 2 de 3"><span class="done">Equipos</span><span class="current">Sistema</span><span>Jugadores</span></p>{% endif %}
+<h1>¿Cómo forma cada equipo?</h1>
+{% if has_lineup %}<p class="callout warn">Si cambias el sistema, cada jugador conserva su casilla y pasa a ocupar el puesto nuevo que le toca.</p>{% endif %}
+
+<form class="form formation-form" method="post" action="/dashboard/partidos/{{ match.id }}/sistema">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  {% if new %}<input type="hidden" name="nuevo" value="1">{% endif %}
+  {% for s in sides %}
+  <fieldset class="formation-side">
+    <legend>{{ s.team }}</legend>
+    <div class="formation-cards">
+      {% for c in s.cards %}
+      <label class="formation-card">
+        <input type="radio" name="{{ s.side }}-f" value="{{ c.name }}" {% if c.selected %}checked{% endif %}>
+        <span class="mini-pitch" aria-hidden="true">
+          {% for x, y in c.dots %}<i style="left: {{ x }}%; top: {{ (y - 50) * 2 }}%"></i>{% endfor %}
+        </span>
+        <span class="formation-name">{{ c.name }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% endfor %}
+  <div class="sheet-actions">
+    <button type="submit" class="button primary">{{ "Continuar" if new else "Guardar sistema" }}</button>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Evaluar a {{ player.name }} — Panel de Scouting{% endblock %}
+{% block body_class %}screen-sheet{% endblock %}
+{% block chrome %}{% include "_match_bar.html" %}{% endblock %}
+{% block footer %}{% endblock %}
+{% block content %}
+<div class="sheet-head">
+  <h1>{% if player.number is not none %}<span class="sheet-number">{{ player.number }}</span>{% endif %}{{ "Sin identificar" if player.unnamed and player.number is not none else player.name }}</h1>
+  <span class="chip sheet-rating" data-rating {% if rating is none %}hidden{% endif %}>{{ rating | valoracion if rating is not none else "" }} / 5</span>
+  {% if profile and scored and not complete %}<span class="badge single" data-incomplete>incompleto</span>{% endif %}
+</div>
+<p class="muted sheet-sub">
+  {% if player.team %}{{ player.team }}{% endif %}{% if player.position %} · {{ player.position }}{% endif %} · {{ match.date | fecha }}
+</p>
+
+{% if identified %}<p class="saved-note" role="status">Jugador actualizado.</p>{% endif %}
+{% if just_saved %}<p class="saved-note" role="status">Evaluación guardada.</p>{% endif %}
+
+{# Identify: an unnamed player gets his name and dorsal; a named one can set his dorsal for this match. #}
+{% set iv = identify_values or {} %}
+{% if collision %}
+<div class="callout warn identify" role="alert">
+  <p><strong>Ya existe {{ collision.name }}{% if collision.team %} en {{ collision.team }}{% endif %}.</strong> ¿Es el mismo jugador?</p>
+  <p class="muted">Si lo es, este perfil se une al suyo: la puntuación y el puesto en la alineación pasan a su ficha.</p>
+  <div class="identify-actions">
+    <form method="post" action="/dashboard/partidos/{{ match.id }}/jugadores/{{ player.id }}/identificar">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+      <input type="hidden" name="nombre" value="{{ iv.nombre }}">
+      <input type="hidden" name="dorsal" value="{{ iv.dorsal }}">
+      <input type="hidden" name="unir" value="{{ collision.id }}">
+      <button type="submit" class="button primary">Sí, es él</button>
+    </form>
+    <a class="button-link" href="#identificar-nombre">No, es otro — cambiar el nombre</a>
+  </div>
+</div>
+{% endif %}
+<details class="identify-box" {% if player.unnamed or identify_error or collision %}open{% endif %}>
+  <summary>{{ "Identificar jugador" if player.unnamed else "Dorsal en este partido" }}</summary>
+  <form class="form identify-form" method="post" action="/dashboard/partidos/{{ match.id }}/jugadores/{{ player.id }}/identificar">
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+    {% if player.unnamed %}
+    <label>Nombre
+      <input id="identificar-nombre" name="nombre" value="{{ iv.nombre or '' }}" autocomplete="off" maxlength="120" placeholder="Nombre y apellido">
+    </label>
+    {% endif %}
+    <label class="identify-number">Dorsal
+      <input name="dorsal" value="{{ iv.dorsal if iv.dorsal is defined else (player.number if player.number is not none else '') }}" inputmode="numeric" pattern="[0-9]*" maxlength="2">
+    </label>
+    <button type="submit" class="button">Guardar</button>
+    {% if identify_error %}<p class="field-error" role="alert">{{ identify_error }}</p>{% endif %}
+    {% if not player.unnamed %}<p class="hint muted">¿El nombre está mal? Cámbialo en la ficha del jugador: el cambio vale para todos sus partidos.</p>{% endif %}
+  </form>
+</details>
+
+<details class="profile-switch">
+  <summary>Perfil: <strong>{{ profile.name if profile else "sin perfil (valoración única)" }}</strong> <span class="muted">· cambiar</span></summary>
+  <form class="form inline-form" method="get" action="">
+    <label>Perfil
+      <select name="perfil">
+        {% for p in profiles %}
+        <option value="{{ p.key }}" {% if profile and p.key == profile.key %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+        <option value="{{ no_profile }}" {% if not profile %}selected{% endif %}>Sin perfil (valoración única)</option>
+      </select>
+    </label>
+    <button type="submit">Cambiar</button>
+  </form>
+</details>
+
+{% if switched %}
+<div class="callout warn">
+  <p><strong>Perfil cambiado, aún sin guardar.</strong>
+  {% if lost %}Al guardar se perderán {{ lost }} puntuaciones que este perfil no tiene.{% else %}Las puntuaciones que coinciden se conservan.{% endif %}</p>
+</div>
+{% endif %}
+
+<form class="form sheet{% if profile %} sheet-tabbed{% endif %}" method="post" action="" data-autosave>
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <input type="hidden" name="perfil" value="{{ profile.key if profile else '' }}">
+
+  {% if profile %}
+  {# One section at a time (scoring.js). The tabs are plain anchors, so without
+     JavaScript every section simply stays on the page. #}
+  <nav class="sheet-tabs" aria-label="Secciones de la ficha">
+    {% for s in sections %}
+    <a class="sheet-tab{% if s.scored == s.total %} complete{% endif %}" href="#sec-{{ s.number }}" data-tab="sec-{{ s.number }}">
+      <span class="tab-label">{{ s.short }}</span>
+      <span class="tab-count" data-count>{{ s.scored }}/{{ s.total }}</span>
+    </a>
+    {% endfor %}
+    <a class="sheet-tab{% if build_ok and height_ok %} complete{% endif %}" href="#sec-fisico" data-tab="sec-fisico">
+      <span class="tab-label">Físico</span>
+      <span class="tab-count">y nota</span>
+    </a>
+  </nav>
+
+  {% for s in sections %}
+  <section class="sheet-section" id="sec-{{ s.number }}" data-section aria-labelledby="sec-{{ s.number }}-title">
+    <h2 class="sheet-section-title" id="sec-{{ s.number }}-title">
+      <span>{{ s.number }}. {{ s.title }}</span>
+      <span class="section-avg" data-avg>{{ s.average }}/5</span>
+    </h2>
+    {% for c in s.criteria %}
+    <div class="criterion">
+      <details class="criterion-name">
+        <summary><span class="code">{{ c.code }}</span><span class="criterion-label">{{ c.name }}</span></summary>
+        <p class="muted">{{ c.description }}</p>
+      </details>
+      <div class="scale" role="radiogroup" aria-label="{{ c.name }}">
+        <label class="scale-clear"><input type="radio" name="s-{{ c.code }}" value="" {% if c.score is none %}checked{% endif %}><span>–<span class="sr-only"> sin puntuar</span></span></label>
+        {% for n in scores_range %}
+        <label><input type="radio" name="s-{{ c.code }}" value="{{ n }}" {% if c.score == n %}checked{% endif %}><span>{{ n }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+
+  <section class="sheet-section" id="sec-fisico" data-section aria-labelledby="sec-fisico-title">
+    <h2 class="sheet-section-title" id="sec-fisico-title"><span>Físico y nota</span></h2>
+    {% for field, label, value in [("contextura", "Contextura: " ~ profile.build, build_ok), ("estatura", "Estatura: " ~ profile.height, height_ok)] %}
+    <div class="criterion">
+      <span class="criterion-name criterion-label">{{ label }}</span>
+      <div class="scale" role="radiogroup" aria-label="{{ label }}">
+        <label class="scale-clear"><input type="radio" name="{{ field }}" value="" {% if not value %}checked{% endif %}><span>–<span class="sr-only"> sin marcar</span></span></label>
+        <label><input type="radio" name="{{ field }}" value="si" {% if value == "si" %}checked{% endif %}><span>Sí</span></label>
+        <label><input type="radio" name="{{ field }}" value="no" {% if value == "no" %}checked{% endif %}><span>No</span></label>
+      </div>
+    </div>
+    {% endfor %}
+    <label class="wide sheet-note">Nota (opcional)
+      <textarea name="nota" rows="4">{{ note or "" }}</textarea>
+    </label>
+  </section>
+  {% else %}
+  <section class="sheet-section">
+    <h2 class="sheet-section-title"><span>Valoración del partido</span></h2>
+    <p class="muted">Este jugador no tiene perfil de puntuación (por ahora, los porteros). Dale una valoración única de 1 a 5.</p>
+    <div class="scale" role="radiogroup" aria-label="Valoración">
+      <label class="scale-clear"><input type="radio" name="valoracion" value="" {% if rating is none %}checked{% endif %}><span>–<span class="sr-only"> sin puntuar</span></span></label>
+      {% for n in scores_range %}
+      <label><input type="radio" name="valoracion" value="{{ n }}" {% if rating == n %}checked{% endif %}><span>{{ n }}</span></label>
+      {% endfor %}
+    </div>
+    <label class="wide sheet-note">Nota (opcional)
+      <textarea name="nota" rows="4">{{ note or "" }}</textarea>
+    </label>
+  </section>
+  {% endif %}
+
+  <div class="sheet-actions">
+    <button type="button" class="button" data-prev hidden aria-label="Sección anterior">←</button>
+    <span class="autosave-status" data-autosave-status role="status" aria-live="polite"></span>
+    <button type="submit" class="button primary" data-save>Guardar</button>
+    <button type="button" class="button primary" data-next hidden>Siguiente →</button>
+    <a class="button primary" href="{{ bar.back }}" data-finish hidden>Terminar</a>
+  </div>
+</form>
+
+{% if saved %}
+<form class="squad-actions" method="post" action="/dashboard/partidos/{{ match.id }}/jugadores/{{ player.id }}/evaluar/borrar">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <button type="submit">Borrar evaluación</button>
+</form>
+{% endif %}
+<script src="/dashboard/static/scoring.js?v={{ asset_v }}" defer></script>
+{% endblock %}

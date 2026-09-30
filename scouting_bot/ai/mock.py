@@ -67,6 +67,26 @@ class MockAIProvider(AIProvider):
             f"Notas recurrentes: {joined}. Recomendación: seguir observando."
         )
 
+    async def draft_profile_report(self, report: dict) -> dict:
+        sections = {}
+        for s in report.get("sections", []):
+            scored = [
+                (c["name"], v) for c in s["criteria"] for v in c["scores"] if v is not None
+            ]
+            best = max(scored, key=lambda x: x[1])[0] if scored else "—"
+            worst = min(scored, key=lambda x: x[1])[0] if scored else "—"
+            sections[str(s["number"])] = (
+                f"{s['title']}: media {s['average']}/5. Destaca en {best}; "
+                f"a mejorar: {worst}. Conclusión: nivel acorde a la media."
+            )
+        return {
+            "summary": (
+                f"{report.get('role') or report.get('profile')} evaluado en "
+                f"{len(report.get('matches', []))} partido(s)."
+            ),
+            "sections": sections,
+        }
+
 
 def _classify_one(
     text: str, home_team: str, away_team: str

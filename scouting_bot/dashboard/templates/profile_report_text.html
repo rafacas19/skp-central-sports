@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Texto del informe — {{ player.name }}{% endblock %}
+{% block content %}
+<p><a class="back" href="/dashboard/jugadores/{{ player.id }}/informe?perfil={{ profile.key }}">← Informe</a></p>
+<h1>Texto del informe · {{ player.name }}</h1>
+<p class="muted">Perfil {{ profile.name }}. Lo que guardes aquí no se reescribe solo: si llegan evaluaciones nuevas, el informe te avisará.</p>
+<form class="form" method="post" action="/dashboard/jugadores/{{ player.id }}/informe/texto">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <input type="hidden" name="perfil" value="{{ profile.key }}">
+  <fieldset>
+    <legend>Resumen</legend>
+    <textarea name="resumen" rows="4">{{ text.summary or "" }}</textarea>
+  </fieldset>
+  {% for s in sheet.sections %}
+  <fieldset>
+    <legend>{{ s.number }}. {{ s.title }} — {{ s.average }}/5</legend>
+    <textarea name="seccion-{{ s.number }}" rows="5">{{ text.sections.get(s.number | string, "") }}</textarea>
+  </fieldset>
+  {% endfor %}
+  <div class="form-actions">
+    <button type="submit" class="primary">Guardar texto</button>
+    <a class="button-link" href="/dashboard/jugadores/{{ player.id }}/informe?perfil={{ profile.key }}">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

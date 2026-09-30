@@ -8,6 +8,7 @@ without dead links.
 
 from __future__ import annotations
 
+import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -16,10 +17,12 @@ from fastapi import (
     APIRouter,
     BackgroundTasks,
     Depends,
+    File,
     Form,
     HTTPException,
     Request,
     Response,
+    UploadFile,
     status,
 )
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -27,7 +30,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..config import settings
-from ..models import CONTACT_NONE, CONTACT_STATUSES, FEET, Prospect, Squad, SquadMember
+from ..evaluations import MergeConflict
+from ..models import (
+    CONTACT_NONE,
+    CONTACT_STATUSES,
+    FEET,
+    Prospect,
+    ProspectPhoto,
+    Squad,
+    SquadMember,
+)
 from ..positions import ROLES
 from ..report import build_squad_workbook
 from ..storage import Storage
@@ -98,6 +110,10 @@ def _valor(value: int | None) -> str:
         return f"${value // 1000} mil"
     return f"${value}"
 
+
+# Cache-busting stamp for /dashboard/static URLs: a deploy restarts the
+# process, so browsers fetch the new stylesheet instead of a cached one.
+templates.env.globals["asset_v"] = str(int(time.time()))
 
 templates.env.filters["fecha"] = _fecha
 templates.env.filters["hora"] = _hora
@@ -220,7 +236,7 @@ async def matches_page(
     response_class=HTMLResponse,
     dependencies=[Depends(auth.require_dashboard)],
 )
-async def match_page(request: Request, session_id: int):
+async def match_page(request: Request, session_id: int, aviso: str | None = None):
     data = await queries.match_detail(session_id)
     if data is None:
         return _render(
@@ -228,7 +244,7 @@ async def match_page(request: Request, session_id: int):
             {"message": "Ese partido no existe.", "back": "/dashboard/partidos"},
             status_code=status.HTTP_404_NOT_FOUND,
         )
-    return _render(request, "match_detail.html", data)
+    return _render(request, "match_detail.html", {**data, "aviso": aviso})
 
 
 @router.get(
@@ -286,7 +302,7 @@ async def players_page(
 _NEW_PLAYER_FIELDS = (
     "nombre", "equipo", "posicion", "dorsal", "anio_nacimiento", "edad",
     "estatura", "peso", "pie", "nacionalidad", "procedencia", "valor",
-    "contrato_hasta", "agente", "telefono_agente", "valoracion", "decision",
+    "contrato_hasta", "agente", "telefono_agente", "video", "valoracion", "decision",
     "notas", "estado_contacto", "fecha_contacto", "notas_contacto",
 )
 
@@ -398,11 +414,18 @@ async def player_page(request: Request, prospect_id: int, background_tasks: Back
     "/foto/{prospect_id}", dependencies=[Depends(auth.require_dashboard)]
 )
 async def player_photo(prospect_id: int):
-    """Proxy the player's Telegram photo.
+    """The player's photo: one uploaded on the panel, else his Telegram photo.
 
     Telegram needs the bot token to serve the file, so the browser can never
     fetch it directly. A missing or unreachable photo is a 404, which the card
     already handles by showing initials."""
+    uploaded = await ProspectPhoto.get_or_none(prospect_id=prospect_id)
+    if uploaded is not None:
+        # Replaceable from the panel, so the browser must revalidate.
+        return Response(
+            bytes(uploaded.data), media_type=uploaded.mime,
+            headers={"Cache-Control": "private, no-cache"},
+        )
     p = await Prospect.get_or_none(id=prospect_id)
     if p is None or not p.photo_file_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -416,6 +439,66 @@ async def player_photo(prospect_id: int):
         # The file_id is immutable, so the browser can hold on to it.
         headers={"Cache-Control": "private, max-age=86400"},
     )
+
+
+# ── Uploading a photo ────────────────────────────────────────────────────
+_PHOTO_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _image_type(data: bytes) -> str | None:
+    """The image's real type from its first bytes — never the browser's word."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _photo_redirect(prospect_id: int, aviso: str | None = None) -> RedirectResponse:
+    url = f"/dashboard/jugadores/{prospect_id}/editar"
+    return RedirectResponse(
+        f"{url}?foto={aviso}" if aviso else url, status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.post("/jugadores/{prospect_id}/foto", dependencies=[Depends(auth.require_dashboard)])
+async def player_photo_upload(
+    request: Request,
+    prospect_id: int,
+    foto: UploadFile | None = File(default=None),
+    csrf: str = Form(default=""),
+):
+    """Store a photo sent from the panel (jpg, png or webp, up to 5 MB)."""
+    auth.require_csrf(csrf)
+    if not await Prospect.filter(id=prospect_id).exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    data = await foto.read(_PHOTO_MAX_BYTES + 1) if foto is not None else b""
+    if not data:
+        return _photo_redirect(prospect_id, "vacia")
+    if len(data) > _PHOTO_MAX_BYTES:
+        return _photo_redirect(prospect_id, "grande")
+    mime = _image_type(data)
+    if mime is None:
+        return _photo_redirect(prospect_id, "formato")
+    existing = await ProspectPhoto.get_or_none(prospect_id=prospect_id)
+    if existing is None:
+        await ProspectPhoto.create(prospect_id=prospect_id, data=data, mime=mime)
+    else:
+        existing.data, existing.mime = data, mime
+        await existing.save()
+    return _photo_redirect(prospect_id, "ok")
+
+
+@router.post(
+    "/jugadores/{prospect_id}/foto/quitar", dependencies=[Depends(auth.require_dashboard)]
+)
+async def player_photo_remove(prospect_id: int, csrf: str = Form(default="")):
+    """Drop the uploaded photo; the Telegram one, if any, shows again."""
+    auth.require_csrf(csrf)
+    await ProspectPhoto.filter(prospect_id=prospect_id).delete()
+    return _photo_redirect(prospect_id, "quitada")
 
 
 # ── Editing a player ─────────────────────────────────────────────────────
@@ -441,6 +524,7 @@ def _form_values(p: Prospect) -> dict[str, str]:
         "contrato_hasta": s(p.contract_year),
         "agente": p.agent_name or "",
         "telefono_agente": p.agent_phone or "",
+        "video": p.video_url or "",
         "valoracion": f"{p.latest_rating:g}" if p.latest_rating is not None else "",
         "decision": p.decision_status or "",
         "notas": p.notes or "",
@@ -479,7 +563,7 @@ def _edit_context(p: Prospect, values: dict[str, str]) -> dict:
     response_class=HTMLResponse,
     dependencies=[Depends(auth.require_dashboard)],
 )
-async def player_edit_page(request: Request, prospect_id: int):
+async def player_edit_page(request: Request, prospect_id: int, foto: str | None = None):
     p = await queries.get_prospect(prospect_id)
     if p is None:
         return _render(
@@ -488,7 +572,15 @@ async def player_edit_page(request: Request, prospect_id: int):
             status_code=status.HTTP_404_NOT_FOUND,
         )
     context = _edit_context(p, _form_values(p))
-    return _render(request, "player_edit.html", {**context, "errors": {}, "collision": None})
+    photo = {
+        "uploaded": await ProspectPhoto.filter(prospect_id=prospect_id).exists(),
+        "telegram": bool(p.photo_file_id),
+        "aviso": foto,
+    }
+    return _render(
+        request, "player_edit.html",
+        {**context, "errors": {}, "collision": None, "photo": photo},
+    )
 
 
 @router.post(
@@ -618,7 +710,16 @@ async def player_merge_submit(
              "back": "/dashboard/jugadores"},
             status_code=status.HTTP_404_NOT_FOUND,
         )
-    await Storage().merge_prospects(keep.id, drop.id)
+    try:
+        await Storage().merge_prospects(keep.id, drop.id)
+    except MergeConflict as exc:
+        data = await queries.merge_candidates(keep.id)
+        selected = next((c for c in data["candidates"] if c["id"] == drop.id), None)
+        return _render(
+            request, "player_merge.html",
+            {**data, "selected": selected, "error": str(exc)},
+            status_code=status.HTTP_409_CONFLICT,
+        )
     return RedirectResponse(
         f"/dashboard/jugadores/{keep.id}", status_code=status.HTTP_303_SEE_OTHER
     )

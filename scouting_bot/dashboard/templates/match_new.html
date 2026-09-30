@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Nuevo partido — Panel de Scouting{% endblock %}
+{% block content %}
+<p><a class="back" href="/dashboard/partidos">← Partidos</a></p>
+<h1>Nuevo partido</h1>
+<p class="muted">Después pones las alineaciones y puntúas a cada jugador desde el campo.</p>
+
+<form class="form" method="post" action="/dashboard/partidos/nuevo">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <fieldset>
+    <legend>Equipos</legend>
+    <div class="form-grid">
+      {% for field, label, hint in [("local", "Local", "Ej. Santa Fe U18 — la categoría se separa sola"), ("visitante", "Visitante", "")] %}
+      <label>{{ label }}
+        <input name="{{ field }}" value="{{ values[field] }}" required maxlength="120" autocomplete="off">
+        {% if hint %}<span class="hint">{{ hint }}</span>{% endif %}
+        {% if errors[field] %}<span class="field-error">{{ errors[field] }}</span>{% endif %}
+      </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>Partido</legend>
+    <div class="form-grid">
+      <label>Fecha
+        <input type="date" name="fecha" value="{{ values.fecha }}" required>
+        {% if errors.fecha %}<span class="field-error">{{ errors.fecha }}</span>{% endif %}
+      </label>
+      <label>Competición
+        <input name="competicion" value="{{ values.competicion }}" maxlength="200">
+        {% if errors.competicion %}<span class="field-error">{{ errors.competicion }}</span>{% endif %}
+      </label>
+      <label>Categoría
+        <input name="categoria" value="{{ values.categoria }}" maxlength="200">
+        {% if errors.categoria %}<span class="field-error">{{ errors.categoria }}</span>{% endif %}
+      </label>
+      <label>Sede
+        <input name="sede" value="{{ values.sede }}" maxlength="200">
+        {% if errors.sede %}<span class="field-error">{{ errors.sede }}</span>{% endif %}
+      </label>
+    </div>
+  </fieldset>
+  <div class="form-actions">
+    <button type="submit" class="primary">Crear y poner alineaciones</button>
+    <a class="button-link" href="/dashboard/partidos">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

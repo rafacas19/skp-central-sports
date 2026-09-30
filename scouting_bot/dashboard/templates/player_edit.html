@@ -17,6 +17,32 @@
 <div class="callout warn">Revisa los campos marcados; no se guardó nada todavía.</div>
 {% endif %}
 
+{% if photo %}
+<section class="photo-upload">
+  <h2>Foto</h2>
+  {% set msgs = {"ok": "Foto guardada.", "quitada": "Foto quitada.", "vacia": "Elige una imagen antes de subirla.",
+                 "grande": "La imagen pasa de 5 MB; usa una más pequeña.", "formato": "Solo se aceptan fotos JPG, PNG o WEBP."} %}
+  {% if photo.aviso in msgs %}<p class="{{ 'saved-note' if photo.aviso in ('ok', 'quitada') else 'error' }}">{{ msgs[photo.aviso] }}</p>{% endif %}
+  <div class="photo-row">
+    {% if photo.uploaded or photo.telegram %}<img class="photo-preview" src="/dashboard/foto/{{ player.id }}" alt="">{% endif %}
+    <form class="form inline-form" method="post" action="/dashboard/jugadores/{{ player.id }}/foto" enctype="multipart/form-data">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+      <label>{{ "Cambiar foto" if photo.uploaded or photo.telegram else "Subir foto" }}
+        <input type="file" name="foto" accept="image/jpeg,image/png,image/webp">
+      </label>
+      <button type="submit">Subir</button>
+    </form>
+    {% if photo.uploaded %}
+    <form method="post" action="/dashboard/jugadores/{{ player.id }}/foto/quitar">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+      <button type="submit" class="chip-button">Quitar foto subida</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="hint muted">JPG, PNG o WEBP, hasta 5 MB. Se usa en las tarjetas y en el informe en lugar de la foto de Telegram.</p>
+</section>
+{% endif %}
+
 <form method="post" action="/dashboard/jugadores/{{ player.id }}/editar" class="form">
   <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
 

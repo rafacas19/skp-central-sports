@@ -1,0 +1,27 @@
+NOVEDADES DEL PANEL — agosto 2026
+
+El bot de Telegram funciona igual. Todo esto es nuevo en el panel web.
+
+1) Crear jugadores a mano
+Entra en Jugadores y pulsa "+ Nuevo jugador" (arriba a la derecha). Solo el
+nombre es obligatorio; el resto lo puedes completar despues. Si ese jugador ya
+existe, el panel te avisa y te lleva a su ficha en vez de duplicarlo.
+
+2) Categoria del equipo automatica
+Escribe el equipo como siempre. Si pones "Santa Fe U18", el panel guarda el club
+(Santa Fe) y la categoria (Sub-18) por separado. Entiende Sub-18, sub 18, U18,
+u-18, y tambien Juvenil, Reserva, Femenino y Profesional. Si el nombre no lleva
+categoria, se queda en blanco. Asi "Santa Fe" y "Santa Fe U18" son el mismo club
+y el jugador no se parte en dos fichas.
+
+3) Seguimiento de contacto
+Cada jugador tiene un estado: Sin contactar, Contactado, En conversacion,
+Reunion agendada, Acuerdo o Descartado.
+- Rapido: en la ficha del jugador, seccion Seguimiento, pulsa el estado. Se
+  guarda la fecha de hoy como ultimo contacto.
+- Con detalle: en Editar puedes poner la fecha exacta y las notas de la charla.
+- Para saber a quien falta llamar: en la lista de Jugadores hay una columna
+  Contacto y un filtro. Filtra por "Sin contactar".
+
+El estado de contacto es aparte de la decision deportiva: un jugador puede ser
+"A firmar" en el campo y "Descartado" en la negociacion.
