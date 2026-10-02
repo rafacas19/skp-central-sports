@@ -3,8 +3,13 @@
 Each profile is the list of criteria a scout scores 1–5 for one kind of player
 (Defensa Central, Lateral, …), grouped into the client's five sections, plus the
 build and height the position asks for (checked Sí/No, never averaged). The text
-is transcribed verbatim from the client's workbook (`feedback/Perfiles_Scout.xlsx`,
-one sheet per profile); only the typo "Concetración" is fixed. Updating a profile
+is transcribed verbatim from the client's workbooks (`feedback/Perfiles_Scout.xlsx`,
+one sheet per outfield profile, and `feedback/Perfiles_Scout_Arquero.xlsx` for the
+goalkeeper). Spelling fixes only ("Concetración", "reamtes", "Aereo", "area").
+In the goalkeeper sheet, a second "1.5 Despeje" copied from the Defensa Central
+sheet is left out, and "5.1 Concentración" takes the concentration text the
+client placed under "4.1 Velocidad de Reacción", whose own description is still
+to come from them. Updating a profile
 means editing this module — there is no admin screen for criteria.
 
 A score sheet's numbers flow into the existing single rating: the match rating
@@ -73,6 +78,77 @@ class Profile:
 
 
 PROFILES: tuple[Profile, ...] = (
+    Profile(
+        'arquero', 'Arquero',
+        (
+        Section(1, '1. TÉCNICA', (
+            Criterion('1.1', 'Control y Recepción',
+                      'Controlar y asegurar el balón tras recibirlo, especialmente ante pases de compañeros o situaciones de presión, permitiendo dar continuidad al juego.'),
+            Criterion('1.2', 'Pase',
+                      'Dirigir el balón con precisión y en el momento adecuado hacia compañeros cercanos o alejados, facilitando la progresión del equipo.'),
+            Criterion('1.3', 'Conducción',
+                      'Trasladar el balón pegado al pie y con cabeza levantada, manteniendo la posesión, a fin de poder fijar, superar una línea/avanzar y/o regular el ritmo de la jugada.'),
+            Criterion('1.4', 'Juego con los pies',
+                      'Utilizar ambos pies para controlar, conducir y jugar el balón bajo diferentes niveles de presión, manteniendo la posesión y dando continuidad al juego.'),
+            Criterion('1.5', 'Blocaje',
+                      'Asegurar el balón mediante una correcta técnica de manos y cuerpo, evitando segundas acciones del rival.'),
+            Criterion('1.6', 'Desvío / Despeje',
+                      'Intervenir sobre el balón cuando no es posible asegurar la posesión, desviándolo o despejándolo hacia una zona segura.'),
+            Criterion('1.7', 'Juego Aéreo',
+                      'Dominar balones elevados mediante blocaje, despeje o salida, controlando correctamente el espacio y la trayectoria del balón.'),
+            Criterion('1.8', 'Saque/Distribución',
+                      'Iniciar el juego mediante saque con mano o pie, buscando precisión, ventaja y continuidad para el equipo.'),
+        )),
+        Section(2, '2. TÁCTICA DEFENSIVA', (
+            Criterion('2.1', 'Posicionamiento',
+                      'Ocupar correctamente la posición respecto al balón, portería, compañeros y rivales, reduciendo los espacios de finalización.'),
+            Criterion('2.2', 'Profundidad Defensiva',
+                      'Controlar el espacio detrás de la última línea defensiva, estando preparado para intervenir ante balones a la espalda de los defensores.'),
+            Criterion('2.3', 'Juego Aéreo Defensivo',
+                      'Interpretar trayectorias y decidir cuándo salir, blocar, despejar o permanecer en portería ante centros y balones elevados.'),
+            Criterion('2.4', '1v1 Defensivo',
+                      'Resolver situaciones de mano a mano, reduciendo el ángulo de finalización y evitando la progresión o remate del atacante.'),
+            Criterion('2.5', 'Control de área',
+                      'Dominar el espacio cercano a la portería, interviniendo sobre centros, pases y acciones que ingresen en su zona de influencia.'),
+            Criterion('2.6', 'Anticipación',
+                      'Leer previamente la trayectoria del balón y las intenciones del rival para intervenir antes de que la acción llegue a una situación de finalización.'),
+            Criterion('2.7', 'Defensa de remates',
+                      'Resolver remates desde diferentes distancias, ángulos y superficies, utilizando correctamente posición, manos, pies y cuerpo.'),
+            Criterion('2.8', 'Segunda Acción',
+                      'Reaccionar después de una primera intervención, estando preparado para rechaces, rebotes o nuevas acciones de finalización.'),
+            Criterion('2.9', 'Organización Defensiva',
+                      'Coordinar y orientar a sus compañeros para mantener el orden defensivo, especialmente ante centros, ataques y situaciones de balón parado.'),
+        )),
+        Section(3, '3. TÁCTICA OFENSIVA', (
+            Criterion('3.1', 'Vista Previa',
+                      'Observar el entorno antes de recibir el balón para identificar compañeros, rivales y espacios disponibles.'),
+            Criterion('3.2', 'Apoyo Fuera del Área',
+                      'Participar defensivamente fuera del área cuando la situación lo exige, interpretando correctamente profundidad y distancia respecto a la última línea.'),
+            Criterion('3.3', 'Toma de Decisión',
+                      'Seleccionar correctamente entre pase corto, pase largo, conducción, saque o conservación del balón según la situación del juego.'),
+        )),
+        Section(4, '4. CONDICIONAL', (
+            Criterion('4.1', 'Velocidad de Reacción',
+                      ''),
+            Criterion('4.2', 'Agilidad',
+                      'Cambiar de dirección, desplazarse, frenar y reaccionar ante diferentes estímulos en el menor tiempo posible.'),
+            Criterion('4.3', 'Coordinación',
+                      'Coordinar desplazamientos, saltos, manos, pies y cuerpo para ejecutar correctamente las intervenciones.'),
+        )),
+        Section(5, '5. MENTAL (COGNITIVO Y VOLITIVO)', (
+            Criterion('5.1', 'Concentración',
+                      'Mantener la atención durante todo el partido, incluso en períodos con poca participación directa.'),
+            Criterion('5.2', 'Confianza/ Valentía',
+                      'Tomar decisiones y asumir riesgos necesarios en situaciones de presión, centros, salidas y duelos.'),
+            Criterion('5.3', 'Liderazgo',
+                      'Influir positivamente en sus compañeros mediante comunicación, orientación y capacidad para organizar la última línea.'),
+            Criterion('5.4', 'Gestión Del Error',
+                      'Recuperarse rápidamente después de un error, manteniendo la concentración y participación en el juego.'),
+        )),
+        ),
+        build='Atlético',
+        height='Alto',
+    ),
     Profile(
         'defensa_central', 'Defensa Central',
         (
@@ -454,9 +530,9 @@ PROFILES: tuple[Profile, ...] = (
 _BY_KEY = {p.key: p for p in PROFILES}
 
 # Canonical role → the profile a player in that role is scored on by default.
-# The scout can pick another profile on the sheet. Roles missing here (Portero)
-# have no profile yet: those players get the single 1–5 rating instead.
+# The scout can pick another profile on the sheet, or none (a single 1–5 rating).
 ROLE_PROFILES: dict[str, str] = {
+    "Portero": "arquero",
     "Defensa central": "defensa_central",
     "Lateral izquierdo": "lateral",
     "Lateral derecho": "lateral",

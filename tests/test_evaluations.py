@@ -227,11 +227,22 @@ async def test_sheet_saves_without_javascript_and_twice_is_one_sheet(client):
     assert "incompleto" in page.text
 
 
-async def test_goalkeeper_sheet_is_a_single_rating(client):
+async def test_goalkeeper_sheet_uses_the_arquero_profile(client):
     match, keeper = await _match(), await _player("Kevin Mier", position="Portero")
     page = await client.get(_url(match, keeper))
+    assert "Blocaje" in page.text and "Valoración del partido" not in page.text
+    # 4.1 has no description yet: a plain label, no empty disclosure.
+    assert '<span class="criterion-name criterion-plain"><span class="code">4.1</span>' in page.text
+    await client.post(_url(match, keeper), data={
+        auth.CSRF_FIELD: _csrf(page.text), "perfil": "arquero", "s-1.5": "5", "s-2.4": "4"})
+    ev = await Evaluation.first()
+    assert (ev.profile, ev.rating) == ("arquero", 4.5)
+
+
+async def test_a_goalkeeper_can_still_get_a_single_rating(client):
+    match, keeper = await _match(), await _player("Kevin Mier", position="Portero")
+    page = await client.get(_url(match, keeper) + "?perfil=ninguno")
     assert "Valoración del partido" in page.text
-    assert "Posicionamiento Defensivo" not in page.text
     await client.post(_url(match, keeper), data={auth.CSRF_FIELD: _csrf(page.text), "perfil": "", "valoracion": "4"})
     assert (await Evaluation.first()).rating == 4.0
 

@@ -33,8 +33,8 @@ terminado.
   *Finalizar partido*.
 
 ### 📝 Puntuar por perfil
-La ficha de cada jugador usa **vuestro perfil por posición** (Defensa Central,
-Lateral, Medio Centro, Interior, Extremo, Centro Delantero), con los mismos
+La ficha de cada jugador usa **vuestro perfil por posición** (Arquero, Defensa
+Central, Lateral, Medio Centro, Interior, Extremo, Centro Delantero), con los mismos
 criterios y descripciones de vuestra hoja *Perfiles Scout*.
 
 - Una sección cada vez: **Técnica · Defensa · Ataque · Condición · Mental ·
@@ -45,8 +45,9 @@ criterios y descripciones de vuestra hoja *Perfiles Scout*.
 - La **valoración del partido es la media** de lo puntuado, y de ahí sale la
   decisión como siempre (por ejemplo, 3,46 → *Interesante*). Si puntúas un
   partido antiguo, no pisa la valoración de uno más reciente.
-- Los **porteros** tienen, por ahora, una valoración única de 1 a 5. En cuanto
-  tengamos vuestra hoja de portero, tendrán su perfil.
+- Los **porteros** se puntúan con vuestra hoja **Arquero** (Técnica, Táctica
+  defensiva, Táctica ofensiva, Condicional y Mental, 27 criterios). Quien prefiera
+  puede seguir dándoles una valoración única de 1 a 5 (*Perfil → Sin perfil*).
 
 ### 📄 Informe de perfil (PDF)
 En la ficha del jugador, **Informe de perfil**: la misma hoja que vuestro

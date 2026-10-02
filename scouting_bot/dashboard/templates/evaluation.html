@@ -103,10 +103,14 @@
     </h2>
     {% for c in s.criteria %}
     <div class="criterion">
+      {% if c.description %}
       <details class="criterion-name">
         <summary><span class="code">{{ c.code }}</span><span class="criterion-label">{{ c.name }}</span></summary>
         <p class="muted">{{ c.description }}</p>
       </details>
+      {% else %}
+      <span class="criterion-name criterion-plain"><span class="code">{{ c.code }}</span> <span class="criterion-label">{{ c.name }}</span></span>
+      {% endif %}
       <div class="scale" role="radiogroup" aria-label="{{ c.name }}">
         <label class="scale-clear"><input type="radio" name="s-{{ c.code }}" value="" {% if c.score is none %}checked{% endif %}><span>–<span class="sr-only"> sin puntuar</span></span></label>
         {% for n in scores_range %}

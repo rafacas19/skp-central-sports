@@ -1243,3 +1243,4 @@ h1 { overflow-wrap: anywhere; }
 .bench-item { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .bench-player.off { opacity: 0.75; border-style: dashed; }
 .bench-off { color: var(--danger); font-weight: 800; font-size: 0.8rem; }
+.sheet .criterion-plain { display: flex; align-items: center; gap: 6px; min-height: 44px; }
