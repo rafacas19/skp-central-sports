@@ -251,3 +251,35 @@ async def test_pdf_with_five_matches_still_fits_one_page(storage, monkeypatch):
     ctx = await profile_report.report_context(player, None)
     doc = profile_report.render_document(profile_report.print_html(ctx))
     assert len(doc.pages) == 1
+
+
+async def test_a_goalkeeper_report_reads_arquero(client):
+    player = await _player(position="Portero")
+    await _scored(player, (await _match(20), {"1.5": 4, "2.4": 3}), profile="arquero")
+    page = await client.get(_url(player))
+    assert "PERFIL: ARQUERO" in page.text and "Blocaje" in page.text
+
+
+async def test_goalkeeper_pdf_with_long_text_and_five_matches_fits_one_page(storage, monkeypatch):
+    pytest.importorskip("weasyprint")
+    monkeypatch.setattr(profile_report, "get_provider", MockAIProvider)
+    player = await _player(position="Portero")
+    arquero = get_profile("arquero")
+    full = {c.code: 3 + (i % 3) for i, c in enumerate(arquero.criteria)}
+    for day in (5, 10, 15, 20, 25):
+        await _scored(player, (await _match(day), full), profile="arquero")
+    await profile_report.draft(player.id, "arquero")
+    para = ("Presenta un buen dominio técnico en general, destacando en blocaje y juego aéreo. "
+            "Tiene capacidad para iniciar el juego con criterio y transmite seguridad a la línea defensiva. "
+            "Conclusión: buen nivel, con margen en el juego con los pies bajo presión.")
+    await ProfileReport.filter(prospect_id=player.id).update(
+        summary=para + " " + para, sections={str(i): para for i in range(1, 6)})
+    for n in (2, 5):
+        ctx = await profile_report.report_context(player, None)
+        if n == 2:
+            ctx["sheet"]["matches"] = ctx["sheet"]["matches"][:2]
+            for s in ctx["sheet"]["sections"]:
+                for c in s["criteria"]:
+                    c["scores"] = c["scores"][:2]
+        doc = profile_report.render_document(profile_report.print_html(ctx))
+        assert len(doc.pages) == 1, f"{n} matches: {len(doc.pages)} pages"

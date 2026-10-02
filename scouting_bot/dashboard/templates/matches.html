@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Partidos — Panel de Scouting{% endblock %}
 {% block content %}
+{% if aviso == "borrado" %}<p class="saved-note" role="status">Partido borrado.</p>{% endif %}
 <div class="page-head">
   <h1>Partidos</h1>
   <a class="button-link primary" href="/dashboard/partidos/nuevo">+ Nuevo partido</a>

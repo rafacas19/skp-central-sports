@@ -187,3 +187,57 @@ async def check_merge(keep_id: int, drop_id: int) -> None:
             "Los dos perfiles tienen una evaluación del mismo partido. "
             "Borra una de las dos antes de fusionarlos."
         )
+
+
+WEB_QUOTE_PREFIX = "Evaluación por perfil"
+
+
+def is_placeholder_quote(text: str | None) -> bool:
+    """The stand-in text of a score sheet with no note: nothing for a reader."""
+    return bool(text) and (text.startswith(WEB_QUOTE_PREFIX) or text == "Valoración del partido")
+
+
+async def summary_payload(prospect_id: int) -> list[dict]:
+    """A player's score sheets as the AI summarizer reads them: per match, the
+    profile, the rating and each section's average with its strongest and
+    weakest criteria by name — the numbers turned into something to write from."""
+    from .profiles import average, format_average, get_profile
+
+    sheets = await Evaluation.filter(prospect_id=prospect_id).prefetch_related("session")
+    out = []
+    for e in sorted(sheets, key=lambda e: match_when(e.session)):
+        s = e.session
+        entry = {
+            "date": match_when(s).date().isoformat(),
+            "match": f"{s.home_team} vs {s.away_team}",
+            "profile": None,
+            "rating": e.rating,
+            "note": e.note or "",
+        }
+        profile = get_profile(e.profile)
+        if profile is not None:
+            entry["profile"] = profile.name
+            sections = []
+            for section in profile.sections:
+                scored = [(c.name, e.scores.get(c.code)) for c in section.criteria
+                          if e.scores.get(c.code) is not None]
+                if not scored:
+                    continue
+                sections.append({
+                    "section": section.title,
+                    "average": format_average(average([v for _, v in scored])),
+                    "strengths": [n for n, v in scored if v >= 4],
+                    "weaknesses": [n for n, v in scored if v <= 2],
+                })
+            entry["sections"] = sections
+            entry["build_ok"] = e.build_ok
+            entry["height_ok"] = e.height_ok
+        out.append(entry)
+    return out
+
+
+async def sheets_marker(prospect_id: int) -> str:
+    """Fingerprint of a player's score sheets: re-scoring changes it even when
+    the number of observations stays the same."""
+    rows = await Evaluation.filter(prospect_id=prospect_id).order_by("id").values_list("id", "updated_at")
+    return "|".join(f"{i}:{u.isoformat()}" for i, u in rows)

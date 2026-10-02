@@ -221,6 +221,9 @@ class Prospect(Model):
     # background (see dashboard/summaries.py).
     ai_summary = fields.TextField(null=True)
     ai_summary_obs_count = fields.IntField(null=True)
+    # Fingerprint of the score sheets the summary saw: re-scoring a match changes
+    # no observation count, so the count alone would never flag it stale.
+    ai_summary_marker = fields.TextField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
 
     observations: fields.ReverseRelation["Observation"]
@@ -380,6 +383,12 @@ class MatchPlayer(Model):
     side = fields.CharField(max_length=8)  # HOME | AWAY
     slot = fields.IntField(null=True)
     shirt_number = fields.IntField(null=True)
+    # Substitutions. The player who came on takes the slot and remembers whom he
+    # replaced (`came_on_for_id`, a prospect id); the one who went off moves to
+    # the bench with `subbed_off`. `sub_minute` is the minute of that change.
+    came_on_for_id = fields.IntField(null=True)
+    subbed_off = fields.BooleanField(default=False)
+    sub_minute = fields.IntField(null=True)
 
     class Meta:
         table = "match_players"

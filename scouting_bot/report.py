@@ -556,3 +556,108 @@ def build_player_report(
     lines.append("*Resumen*")
     lines.append(summary)
     return "\n".join(lines)
+
+
+# ── Score sheets as the client's own workbook (Perfiles Scout) ──────────────────
+def build_scores_workbook(match_title: str, sheets: list[dict]) -> bytes:
+    """A match's score sheets laid out like the client's `Perfiles_Scout.xlsx`.
+
+    One worksheet per position profile used in the match, exactly their layout:
+    `Código · Criterio · Descripción`, section header rows ("1. TÉCNICA"), the
+    build and height rows at the bottom — and then one column per player scored
+    on that profile, which is the part their blank template leaves to fill in.
+    A last row carries each player's match rating (the mean of his scores).
+
+    `sheets` is a list of {"profile": Profile, "players": [{"label": str,
+    "scores": {code: int}, "build_ok": bool|None, "height_ok": bool|None,
+    "rating": float|None}]}; players without a profile come as
+    {"profile": None, "players": [...]} and get a two-column "Valoración" sheet.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    green = PatternFill("solid", fgColor="14532D")
+    band = PatternFill("solid", fgColor="DFEEE4")
+    white_bold = Font(bold=True, color="FFFFFF")
+    wrap = Alignment(wrap_text=True, vertical="top")
+    center = Alignment(horizontal="center", vertical="center")
+
+    def yes_no(value):
+        return "" if value is None else ("Sí" if value else "No")
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    for entry in sheets:
+        profile, players = entry["profile"], entry["players"]
+        if profile is None:
+            ws = wb.create_sheet(_sheet_title("Sin perfil"))
+            ws.append(["DETECCIÓN DE TALENTO"])
+            ws.append(["VALORACIÓN ÚNICA (SIN PERFIL DE POSICIÓN)"])
+            ws.append([match_title])
+            ws.append([])
+            ws.append(["Jugador", "Valoración 1 a 5"])
+            for cell in ws[5]:
+                cell.font, cell.fill = white_bold, green
+            for p in players:
+                ws.append([p["label"], p["rating"]])
+            ws.column_dimensions["A"].width = 34
+            ws.column_dimensions["B"].width = 18
+            for row in (1, 2):
+                ws.cell(row=row, column=1).font = Font(bold=True, size=12 if row == 1 else 11)
+            continue
+
+        ws = wb.create_sheet(_sheet_title(profile.name))
+        last_col = 3 + max(len(players), 1)
+        ws.append(["DETECCIÓN DE TALENTO"])
+        ws.append([f"PERFIL POR POSICIÓN: {profile.name.upper()}"])
+        ws.append([match_title])
+        ws.append(["Código", "Criterio", "Descripción", *[p["label"] for p in players]])
+        ws.cell(row=1, column=1).font = Font(bold=True, size=12)
+        ws.cell(row=2, column=1).font = Font(bold=True)
+        for cell in ws[4]:
+            cell.font, cell.fill, cell.alignment = white_bold, green, Alignment(wrap_text=True, vertical="center")
+
+        def section_row(title: str) -> None:
+            ws.append([title])
+            r = ws.max_row
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=last_col)
+            ws.cell(row=r, column=1).font = Font(bold=True, color="14532D")
+            ws.cell(row=r, column=1).fill = band
+
+        for section in profile.sections:
+            section_row(section.header)
+            for c in section.criteria:
+                ws.append([c.code, c.name, c.description, *[p["scores"].get(c.code) for p in players]])
+                r = ws.max_row
+                ws.cell(row=r, column=3).alignment = wrap
+                for col in range(4, 4 + len(players)):
+                    ws.cell(row=r, column=col).alignment = center
+        section_row("6. CONTEXTURA")
+        ws.append([None, profile.build, None, *[yes_no(p["build_ok"]) for p in players]])
+        section_row("7. ESTATURA")
+        ws.append([None, profile.height, None, *[yes_no(p["height_ok"]) for p in players]])
+        ws.append([])
+        ws.append([None, "VALORACIÓN DEL PARTIDO (media)", None, *[p["rating"] for p in players]])
+        r = ws.max_row
+        ws.cell(row=r, column=2).font = Font(bold=True)
+        for col in range(4, 4 + len(players)):
+            ws.cell(row=r, column=col).font = Font(bold=True)
+            ws.cell(row=r, column=col).alignment = center
+
+        ws.column_dimensions["A"].width = 8
+        ws.column_dimensions["B"].width = 28
+        ws.column_dimensions["C"].width = 70
+        for col in range(4, 4 + len(players)):
+            ws.column_dimensions[get_column_letter(col)].width = 18
+        ws.freeze_panes = "D5"
+
+    if not wb.worksheets:
+        ws = wb.create_sheet("Evaluaciones")
+        ws.append(["DETECCIÓN DE TALENTO"])
+        ws.append([match_title])
+        ws.append(["Todavía no hay jugadores puntuados en este partido."])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

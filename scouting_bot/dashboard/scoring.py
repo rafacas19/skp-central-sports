@@ -12,9 +12,9 @@ autosaves the sheet; without it the Guardar button does the same.
 
 from __future__ import annotations
 
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
-from fastapi import APIRouter, Depends, Form, Request, status
+from fastapi import APIRouter, Depends, Form, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..evaluations import (
@@ -25,6 +25,7 @@ from ..evaluations import (
 )
 from ..models import Evaluation, MatchPlayer, Observation, Prospect, Session
 from ..positions import ROLES
+from ..report import build_scores_workbook
 from .. import profiles
 from ..profiles import (
     SCORES,
@@ -37,7 +38,7 @@ from ..profiles import (
     match_rating,
 )
 from ..storage import Storage
-from ..taxonomy import normalize_identity
+from ..taxonomy import normalize_identity, normalize_name
 from . import auth, queries
 from .pitch import is_unnamed, name_player
 from .router import _render
@@ -187,6 +188,9 @@ async def _sheet_context(
         "height_ok": _tri(evaluation.height_ok) if evaluation is not None and not switched else "",
         "note": evaluation.note if evaluation is not None else "",
         "saved": evaluation is not None,
+        # When the stored sheet last changed (ms), so offline edits queued on the
+        # phone are only replayed over an older sheet, never a newer one.
+        "updated_ms": int(evaluation.updated_at.timestamp() * 1000) if evaluation is not None else 0,
         "switched": switched,
         "lost": lost,
     }
@@ -394,4 +398,59 @@ async def identify_player(
     return RedirectResponse(
         _sheet_url(session_id, prospect.id, identificado="1"),
         status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+# ── Scores as the client's workbook ──────────────────────────────────────────
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+async def scores_workbook_data(session: Session) -> tuple[str, list[dict]]:
+    """The match's sheets grouped by profile, players in lineup order (home
+    side first, then by dorsal), each labelled "dorsal · nombre"."""
+    evaluations = await Evaluation.filter(session_id=session.id).prefetch_related("prospect")
+    lineup = {m.prospect_id: m for m in await MatchPlayer.filter(session_id=session.id)}
+    home = normalize_name(session.home_team)
+
+    def label(e: Evaluation) -> str:
+        m = lineup.get(e.prospect_id)
+        number = m.shirt_number if m is not None and m.shirt_number is not None else e.prospect.shirt_number
+        name = e.prospect.name or "Sin identificar"
+        return f"{number} · {name}" if number is not None else name
+
+    def order(e: Evaluation):
+        m = lineup.get(e.prospect_id)
+        side_home = (m.side == "home") if m is not None else normalize_name(e.prospect.team or "") == home
+        number = m.shirt_number if m is not None and m.shirt_number is not None else 999
+        return (not side_home, number, normalize_name(e.prospect.name or ""))
+
+    groups: dict[str | None, list[Evaluation]] = {}
+    for e in sorted(evaluations, key=order):
+        groups.setdefault(e.profile, []).append(e)
+    sheets = []
+    for p in profiles.PROFILES:  # the client's own sheet order
+        if p.key in groups:
+            sheets.append({"profile": p, "players": [
+                {"label": label(e), "scores": e.scores, "build_ok": e.build_ok,
+                 "height_ok": e.height_ok, "rating": e.rating} for e in groups[p.key]]})
+    if None in groups:
+        sheets.append({"profile": None, "players": [
+            {"label": label(e), "rating": e.rating} for e in groups[None]]})
+    when = (session.match_date or session.created_at).astimezone(queries.TZ)
+    title = f"{session.home_team} vs {session.away_team} · {when:%d/%m/%Y}"
+    return title, sheets
+
+
+@router.get("/partidos/{session_id}/evaluaciones.xlsx", dependencies=[Depends(auth.require_dashboard)])
+async def scores_excel(request: Request, session_id: int):
+    """Every score sheet of the match, as the client's Perfiles Scout workbook."""
+    session = await Session.get_or_none(id=session_id)
+    if session is None:
+        return _missing(request, "Ese partido no existe.")
+    title, sheets = await scores_workbook_data(session)
+    payload = build_scores_workbook(title, sheets)
+    filename = f"Perfiles {session.home_team} vs {session.away_team}.xlsx"
+    return Response(
+        payload, media_type=_XLSX_MEDIA,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )

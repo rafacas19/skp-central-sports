@@ -196,6 +196,6 @@ async def test_adding_a_goalkeeper_profile_needs_only_the_profile_and_a_mapping(
     assert "PERFIL: PORTERO" in report.text and "Blocaje" in report.text
 
 
-def test_the_clients_sheet_has_no_goalkeeper_profile_yet():
-    assert "portero" not in {p.key for p in profiles.PROFILES}
-    assert profiles.default_profile("Portero") is None
+def test_goalkeepers_are_scored_on_the_clients_arquero_profile():
+    assert profiles.default_profile("Portero").name == "Arquero"
+    assert profiles.PROFILES[0].key == "arquero"  # pitch order: goalkeeper first

@@ -68,12 +68,17 @@ class AIProvider(Protocol):
         """
         ...
 
-    async def summarize_player(self, observations: list[dict]) -> str:
+    async def summarize_player(
+        self, observations: list[dict], evaluations: list[dict] | None = None
+    ) -> str:
         """Cross-match raw observations → a short Spanish scouting profile.
 
         Each dict carries {date, match, team, opponent, position, number,
-        observation, rating, source, scout}. Returns prose describing patterns,
-        strengths, concerns, and a recommendation."""
+        observation, rating, source, scout}. `evaluations` are the player's
+        score sheets from the dashboard ({date, match, profile, rating,
+        sections[{section, average, strengths, weaknesses}], note}), when he has
+        any. Returns prose describing patterns, strengths, concerns, and a
+        recommendation."""
         ...
 
     async def draft_profile_report(self, report: dict) -> dict:

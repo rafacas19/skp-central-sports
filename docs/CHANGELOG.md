@@ -33,8 +33,8 @@ terminado.
   *Finalizar partido*.
 
 ### 📝 Puntuar por perfil
-La ficha de cada jugador usa **vuestro perfil por posición** (Defensa Central,
-Lateral, Medio Centro, Interior, Extremo, Centro Delantero), con los mismos
+La ficha de cada jugador usa **vuestro perfil por posición** (Arquero, Defensa
+Central, Lateral, Medio Centro, Interior, Extremo, Centro Delantero), con los mismos
 criterios y descripciones de vuestra hoja *Perfiles Scout*.
 
 - Una sección cada vez: **Técnica · Defensa · Ataque · Condición · Mental ·
@@ -45,8 +45,9 @@ criterios y descripciones de vuestra hoja *Perfiles Scout*.
 - La **valoración del partido es la media** de lo puntuado, y de ahí sale la
   decisión como siempre (por ejemplo, 3,46 → *Interesante*). Si puntúas un
   partido antiguo, no pisa la valoración de uno más reciente.
-- Los **porteros** tienen, por ahora, una valoración única de 1 a 5. En cuanto
-  tengamos vuestra hoja de portero, tendrán su perfil.
+- Los **porteros** se puntúan con vuestra hoja **Arquero** (Técnica, Táctica
+  defensiva, Táctica ofensiva, Condicional y Mental, 27 criterios). Quien prefiera
+  puede seguir dándoles una valoración única de 1 a 5 (*Perfil → Sin perfil*).
 
 ### 📄 Informe de perfil (PDF)
 En la ficha del jugador, **Informe de perfil**: la misma hoja que vuestro
@@ -63,6 +64,31 @@ ejemplo, con una columna por partido puntuado, la media de cada sección
 En **Editar** jugador puedes subir una **foto** (JPG, PNG o WEBP, hasta 5 MB),
 que sustituye a la de Telegram, y añadir un **enlace de vídeo**, que aparece en
 el informe.
+
+### 🔁 Cambios durante el partido
+En el campo, **Cambio · ⟨equipo⟩**: eliges quién sale y quién entra (un suplente
+o alguien que escribes en ese momento) y, si quieres, el minuto. El que entra
+ocupa su puesto con una flecha verde ↑; el que sale pasa al banquillo con ↓ y el
+minuto. Si te equivocas, **Deshacer cambio**.
+
+### 📊 Excel de las evaluaciones
+En el partido (o en el menú **⋮** del campo), **Descargar Excel**: vuestra hoja
+*Perfiles Scout* rellena, una pestaña por perfil, los criterios en filas y **una
+columna por jugador**, con su valoración del partido al final.
+
+### ✏️ Editar o borrar un partido
+En el partido, **Editar**: fecha, competición, categoría y sede (y los equipos,
+si el partido se creó en el panel). Un partido creado en el panel también se puede
+**borrar**; los jugadores con nombre siguen en *Jugadores* y su valoración vuelve
+a la de su último partido.
+
+### 📶 Sin cobertura en el campo
+Si pierdes la señal mientras puntúas, lo que toques se queda guardado en el móvil
+y se envía solo cuando vuelve la conexión, aunque cierres la página.
+
+### 🤖 El resumen del jugador lee las puntuaciones
+El resumen con IA de la ficha del jugador (y el informe del bot) usa ahora las
+puntuaciones por perfil, no solo las notas.
 
 ### 📱 Todo el panel en el móvil
 - El menú de arriba se recoge en un botón **Menú**.

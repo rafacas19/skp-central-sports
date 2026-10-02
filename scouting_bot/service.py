@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from .ai.base import AIProvider, ClassifiedNote, PlayerMatch
+from .evaluations import is_placeholder_quote, summary_payload
 from .models import Observation, Prospect, Session
 from .storage import Storage
 
@@ -503,8 +504,10 @@ class ScoutingService:
         observations = await self.storage.observations_for_prospect(
             chat_id, prospect.id
         )
-        payload = [self._obs_to_dict(o) for o in observations]
-        summary = await self.ai.summarize_player(payload)
+        payload = [self._obs_to_dict(o) for o in observations
+                   if not is_placeholder_quote(o.raw_quote)]
+        sheets = await summary_payload(prospect.id)
+        summary = await self.ai.summarize_player(payload, sheets or None)
         return prospect, observations, summary
 
     async def historical_report(
@@ -519,8 +522,11 @@ class ScoutingService:
             observations = await self.storage.observations_for_prospect(
                 chat_id, prospect.id
             )
-            payload = [self._obs_to_dict(o) for o in observations]
-            summary = await self.ai.summarize_player(payload) if payload else ""
+            payload = [self._obs_to_dict(o) for o in observations
+                       if not is_placeholder_quote(o.raw_quote)]
+            sheets = await summary_payload(prospect.id)
+            summary = (await self.ai.summarize_player(payload, sheets or None)
+                       if payload or sheets else "")
             out.append((prospect, observations, summary))
         return out
 

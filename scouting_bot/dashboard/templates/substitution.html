@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Cambio — {{ match.home_team }} vs {{ match.away_team }}{% endblock %}
+{% block content %}
+<p><a class="back" href="/dashboard/partidos/{{ match.id }}/campo">← Campo</a></p>
+<h1>Hacer un cambio</h1>
+{% set lado = values.lado or "home" %}
+<form class="form sub-form" method="post" action="/dashboard/partidos/{{ match.id }}/cambio">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <fieldset>
+    <legend>Equipo</legend>
+    <div class="scale sub-sides" role="radiogroup" aria-label="Equipo">
+      {% for s in sides %}
+      <label><input type="radio" name="lado" value="{{ s.side }}" {% if s.side == lado %}checked{% endif %}><span>{{ s.team }}</span></label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% for s in sides %}
+  <div class="sub-side" data-side="{{ s.side }}">
+    <fieldset>
+      <legend>Sale · {{ s.team }}</legend>
+      {% if s.on %}
+      <label>Jugador que sale
+        <select name="sale-{{ s.side }}">
+          <option value="">—</option>
+          {% for p in s.on %}<option value="{{ p.id }}" {% if values['sale-' ~ s.side] == p.id | string %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
+        </select>
+      </label>
+      {% else %}
+      <p class="muted">Nadie en el campo todavía: pon la alineación o toca un puesto en el campo.</p>
+      {% endif %}
+    </fieldset>
+    <fieldset>
+      <legend>Entra · {{ s.team }}</legend>
+      <label>Suplente
+        <select name="entra-{{ s.side }}">
+          {% for p in s.bench %}<option value="{{ p.id }}" {% if values['entra-' ~ s.side] == p.id | string %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
+          <option value="nuevo" {% if not s.bench or values['entra-' ~ s.side] == 'nuevo' %}selected{% endif %}>Otro jugador (escríbelo abajo)</option>
+        </select>
+      </label>
+    </fieldset>
+  </div>
+  {% endfor %}
+  <fieldset>
+    <legend>Si entra otro jugador</legend>
+    <div class="form-grid">
+      <label>Dorsal <input name="dorsal" value="{{ values.dorsal or '' }}" inputmode="numeric" pattern="[0-9]*" maxlength="2"></label>
+      <label>Nombre (opcional) <input name="nombre" value="{{ values.nombre or '' }}" autocomplete="off"></label>
+    </div>
+  </fieldset>
+  <label class="wide">Minuto (opcional)
+    <input name="minuto" value="{{ values.minuto or '' }}" inputmode="numeric" pattern="[0-9]*" maxlength="3">
+  </label>
+  {% for key in ("sale", "entra", "minuto") %}{% if errors[key] %}<p class="field-error" role="alert">{{ errors[key] }}</p>{% endif %}{% endfor %}
+  <div class="form-actions">
+    <button type="submit" class="primary">Hacer el cambio</button>
+    <a class="button-link" href="/dashboard/partidos/{{ match.id }}/campo">Cancelar</a>
+  </div>
+</form>
+<script>
+  // Show only the chosen team's pickers (without JS both are shown, labelled).
+  (function () {
+    var form = document.querySelector(".sub-form");
+    function sync() {
+      var side = form.querySelector('input[name="lado"]:checked').value;
+      form.querySelectorAll(".sub-side").forEach(function (el) { el.hidden = el.dataset.side !== side; });
+    }
+    form.addEventListener("change", function (e) { if (e.target.name === "lado") sync(); });
+    sync();
+  })();
+</script>
+{% endblock %}

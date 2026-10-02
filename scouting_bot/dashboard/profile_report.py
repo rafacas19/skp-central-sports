@@ -105,7 +105,8 @@ def report_sheet(prospect: Prospect, profile: Profile, evaluations: list[Evaluat
         )
     role = canonical_position(prospect.position)
     return {
-        "role": (role.role if role else profile.name),
+        # The client calls the goalkeeper "Arquero" (their sheet's title).
+        "role": (role.role if role and role.role != "Portero" else profile.name),
         "matches": matches,
         "sections": sections,
         "overall": format_average(average(every_score)),

@@ -6,7 +6,10 @@
   <h1>{{ match.home_team }} vs {{ match.away_team }}
     {% if match.is_active %}<span class="badge live">{{ "En curso" if match.is_web else "En vivo" }}</span>{% endif %}
   </h1>
-  <a class="button-link primary" href="/dashboard/partidos/{{ match.id }}/campo">Campo</a>
+  <div class="chips">
+    <a class="button-link" href="/dashboard/partidos/{{ match.id }}/editar">Editar</a>
+    <a class="button-link primary" href="/dashboard/partidos/{{ match.id }}/campo">Campo</a>
+  </div>
 </div>
 
 <section class="meta">
@@ -26,7 +29,10 @@
 </section>
 
 <section id="evaluaciones">
-  <h2>Evaluaciones</h2>
+  <div class="page-head">
+    <h2>Evaluaciones</h2>
+    {% if roster | selectattr("evaluated") | list %}<a class="button-link" href="/dashboard/partidos/{{ match.id }}/evaluaciones.xlsx">Descargar Excel</a>{% endif %}
+  </div>
   {% if aviso == "faltan_datos" %}<p class="error">Escribe al menos el nombre o el dorsal del jugador.</p>{% endif %}
   {% if roster %}
   <ul class="roster">
