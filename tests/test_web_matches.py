@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 import httpx
+import pytest
 import pytest_asyncio
 
 from scouting_bot.config import settings
@@ -570,3 +571,36 @@ async def test_a_change_needs_who_goes_off_and_who_comes_on(client):
     assert resp.status_code == 400
     for msg in ("Elige quién sale", "número entre 0 y 150"):
         assert msg in resp.text
+
+
+# ── Several matches open at once (prod hotfix) ───────────────────────────
+async def test_web_matches_can_be_open_alongside_each_other_and_a_bot_match(storage):
+    """Production had a hand-made unique index allowing one active session per
+    scout, which made a second panel match fail with a 500. Migration 15
+    narrows it to bot matches; apply its real SQL here (tests build the schema
+    from the models, which never had the index) and check both rules."""
+    import importlib.util
+    from pathlib import Path
+
+    from tortoise import Tortoise
+    from tortoise.exceptions import IntegrityError
+
+    conn = Tortoise.get_connection("default")
+    legacy = ('CREATE UNIQUE INDEX IF NOT EXISTS "uq_sessions_one_active_per_agent" '
+              "ON \"sessions\" (\"agent_chat_id\") WHERE \"state\" = 'active'")
+    path = Path(__file__).resolve().parent.parent / "migrations/models/15_20261002000000_one_active_bot_match.py"
+    spec = importlib.util.spec_from_file_location("one_active_bot_match", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    await conn.execute_script(legacy)
+    try:
+        await conn.execute_script(await migration.upgrade(conn))
+        await storage.create_session(7, "Junior", "Nacional", None)  # the bot's open match
+        await storage.create_session(7, "América", "Cali", None, origin=ORIGIN_WEB)
+        await storage.create_session(7, "Millonarios", "Once Caldas", None, origin=ORIGIN_WEB)
+        assert await Session.filter(agent_chat_id=7, state="active").count() == 3
+        with pytest.raises(IntegrityError):  # still only one open bot match
+            await storage.create_session(7, "Santa Fe", "Tolima", None)
+    finally:
+        await conn.execute_script('DROP INDEX IF EXISTS "uq_sessions_one_active_bot_per_agent";'
+                                  'DROP INDEX IF EXISTS "uq_sessions_one_active_per_agent";')
