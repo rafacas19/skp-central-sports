@@ -5,11 +5,44 @@
 <p class="muted">Lectura ve todo. Edición también crea y cambia datos. Administrador, además, gestiona usuarios.</p>
 
 {% if issued %}
-<div class="callout warn issued" role="status">
-  <p><strong>{{ "Usuario creado" if issued.new else "Contraseña restablecida" }}: {{ issued.username }}</strong></p>
-  <p>Contraseña temporal: <code class="temp-password">{{ issued.password }}</code></p>
-  <p class="muted">Dásela en persona: no se volverá a mostrar. Al entrar con ella tendrá que elegir la suya.</p>
-</div>
+{# Shown once: the password is in this response only (no redirect, nothing
+   in a URL). A native <dialog>, opened as a modal by the script below; without
+   JavaScript the `open` attribute still shows it on the page. #}
+<dialog class="temp-dialog" id="temp-dialog" open aria-labelledby="temp-title">
+  <h2 id="temp-title">{{ "Usuario creado" if issued.new else "Contraseña restablecida" }}</h2>
+  <p class="temp-who">Usuario: <strong>{{ issued.username }}</strong></p>
+  <p class="temp-label">Contraseña temporal</p>
+  <div class="temp-row">
+    <code class="temp-password" id="temp-password">{{ issued.password }}</code>
+    <button type="button" class="button" data-copy="#temp-password">Copiar</button>
+  </div>
+  <p class="temp-status" role="status" aria-live="polite"></p>
+  <p class="muted">Dásela en persona o por un canal privado: <strong>no se volverá a mostrar</strong>. Al entrar con ella, tendrá que elegir su propia contraseña.</p>
+  <form method="dialog" class="temp-actions">
+    <button type="submit" class="button primary" autofocus>Ya la he copiado</button>
+  </form>
+</dialog>
+<script>
+  (function () {
+    var d = document.getElementById("temp-dialog");
+    if (d && d.showModal) { d.removeAttribute("open"); d.showModal(); }
+    var btn = d && d.querySelector("[data-copy]");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var text = document.querySelector(btn.dataset.copy).textContent.trim();
+      var status = d.querySelector(".temp-status");
+      function done(ok) { status.textContent = ok ? "Copiada al portapapeles." : "Selecciónala y cópiala a mano."; }
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+      } else {
+        // http://<ip> on the local network is not a secure context: fall back.
+        var r = document.createRange(); r.selectNodeContents(document.querySelector(btn.dataset.copy));
+        var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        try { done(document.execCommand("copy")); } catch (e) { done(false); }
+      }
+    });
+  })();
+</script>
 {% endif %}
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 

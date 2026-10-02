@@ -135,7 +135,7 @@ async def test_admin_creates_users_with_a_one_time_temporary_password(client):
     resp = await client.post("/dashboard/usuarios", data={
         "csrf": _csrf(page.text), "usuario": "Scout1", "nombre": "Scout Uno", "rol": "write"})
     assert resp.status_code == 200
-    temp = re.search(r'class="temp-password">([^<]+)<', resp.text).group(1)
+    temp = re.search(r'id="temp-password">([^<]+)<', resp.text).group(1)
     assert re.fullmatch(r"[A-Za-z2-9]{4}-[A-Za-z2-9]{4}-[A-Za-z2-9]{4}", temp)
     scout = await DashboardUser.get(username="scout1")
     assert (scout.role, scout.must_change_password, scout.display_name) == ("write", True, "Scout Uno")
@@ -263,12 +263,13 @@ async def test_reset_role_change_and_disable_end_the_users_sessions(client):
         assert (await _login(other, "scout")).status_code == 303
         reset = await client.post(f"/dashboard/usuarios/{scout.id}/restablecer", data={"csrf": token})
         assert "Contraseña restablecida" in reset.text
+        assert '<dialog class="temp-dialog"' in reset.text and "Copiar" in reset.text
         assert (await other.get("/dashboard")).status_code == 303
         assert (await _login(other, "scout")).status_code == 401  # old password is gone
 
         await client.post(f"/dashboard/usuarios/{scout.id}/estado", data={"csrf": token, "activo": "0"})
         assert not (await DashboardUser.get(id=scout.id)).is_active
-        temp = re.search(r'class="temp-password">([^<]+)<', reset.text).group(1)
+        temp = re.search(r'id="temp-password">([^<]+)<', reset.text).group(1)
         assert (await _login(other, "scout", temp)).status_code == 401  # disabled
 
 

@@ -1278,3 +1278,21 @@ h1 { overflow-wrap: anywhere; }
 }
 .temp-password { white-space: nowrap; display: inline-block; }
 .inline-row select { min-height: 44px; }
+
+/* ── One-time temporary password ── */
+.temp-dialog {
+  width: min(92vw, 420px); padding: 22px 22px 18px; border: none; border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(11, 61, 32, 0.28); color: var(--text);
+}
+.temp-dialog::backdrop { background: rgba(11, 61, 32, 0.45); }
+.temp-dialog[open]:not(:modal) { position: static; width: auto; margin: 12px 0; box-shadow: none; border: 1px solid #f0dc9a; background: #fffbe9; }
+.temp-dialog h2 { margin: 0 0 6px; border: none; padding: 0; }
+.temp-who { margin: 0 0 10px; }
+.temp-label { margin: 0 0 4px; color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+.temp-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.temp-dialog .temp-password {
+  flex: 1 1 auto; font-size: 1.35rem; padding: 10px 12px; border-radius: 10px;
+  background: var(--green-100); border: 1px solid var(--border); text-align: center; user-select: all;
+}
+.temp-status { min-height: 1.2em; margin: 6px 0 0; color: var(--green-600); font-weight: 600; font-size: 0.9rem; }
+.temp-actions { margin: 14px 0 0; display: flex; justify-content: flex-end; }
