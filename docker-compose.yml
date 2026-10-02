@@ -41,6 +41,9 @@ services:
       API_KEY: ${API_KEY:-dev-key}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-dev-dashboard}
       DASHBOARD_SECRET: ${DASHBOARD_SECRET:-}
+      # Local first admin (asked to choose a real password on first sign-in).
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_TEMP_PASSWORD: ${ADMIN_TEMP_PASSWORD:-dev-admin-temp}
       PORT: "10000"
     ports:
       - "10000:10000"

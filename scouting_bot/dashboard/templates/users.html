@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Usuarios — Panel de Scouting{% endblock %}
+{% block content %}
+<h1>Usuarios</h1>
+<p class="muted">Lectura ve todo. Edición también crea y cambia datos. Administrador, además, gestiona usuarios.</p>
+
+{% if issued %}
+<div class="callout warn issued" role="status">
+  <p><strong>{{ "Usuario creado" if issued.new else "Contraseña restablecida" }}: {{ issued.username }}</strong></p>
+  <p>Contraseña temporal: <code class="temp-password">{{ issued.password }}</code></p>
+  <p class="muted">Dásela en persona: no se volverá a mostrar. Al entrar con ella tendrá que elegir la suya.</p>
+</div>
+{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+<table class="stack">
+  <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th></th></tr></thead>
+  <tbody>
+    {% for u in users %}
+    <tr>
+      <td><strong>{{ u.username }}</strong>{% if u.is_me %} <span class="chip small">tú</span>{% endif %}</td>
+      <td data-label="Nombre">{{ u.display_name }}</td>
+      <td data-label="Rol">
+        <form method="post" action="/dashboard/usuarios/{{ u.id }}/rol" class="inline-row">
+          <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+          <select name="rol" aria-label="Rol de {{ u.username }}" onchange="this.form.submit()">
+            {% for key, label in roles %}<option value="{{ key }}" {% if key == u.role %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+          <noscript><button type="submit" class="chip-button">Cambiar</button></noscript>
+        </form>
+      </td>
+      <td data-label="Estado">
+        {% if not u.active %}<span class="badge">Desactivado</span>
+        {% elif u.pending %}<span class="badge single">Pendiente de contraseña</span>
+        {% else %}<span class="badge live">Activo</span>{% endif %}
+      </td>
+      <td data-label="Último acceso">{{ u.last_login | fecha if u.last_login else "—" }}</td>
+      <td data-label="" class="user-actions">
+        <form method="post" action="/dashboard/usuarios/{{ u.id }}/restablecer">
+          <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+          <button type="submit" class="chip-button">Restablecer contraseña</button>
+        </form>
+        {% if not u.is_me %}
+        <form method="post" action="/dashboard/usuarios/{{ u.id }}/estado">
+          <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+          <input type="hidden" name="activo" value="{{ '0' if u.active else '1' }}">
+          <button type="submit" class="chip-button">{{ "Desactivar" if u.active else "Activar" }}</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Nuevo usuario</h2>
+<form method="post" action="/dashboard/usuarios" class="form">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <div class="form-grid">
+    <label>Usuario
+      <input name="usuario" value="{{ values.usuario or '' }}" required autocapitalize="none" spellcheck="false" maxlength="40" placeholder="p. ej. wilmer">
+      <span class="hint">3 a 40 caracteres: letras, números, «.», «_» o «-».</span>
+    </label>
+    <label>Nombre
+      <input name="nombre" value="{{ values.nombre or '' }}" maxlength="80" placeholder="Wilmer Leguizamón">
+    </label>
+    <label>Rol
+      <select name="rol">
+        {% for key, label in roles %}<option value="{{ key }}" {% if (values.rol or 'read') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Contraseña temporal (opcional)
+      <input name="temporal" maxlength="80" autocomplete="off" placeholder="Se genera una si lo dejas vacío">
+    </label>
+  </div>
+  <div class="form-actions"><button type="submit" class="primary">Crear usuario</button></div>
+</form>
+{% endblock %}

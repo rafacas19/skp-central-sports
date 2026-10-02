@@ -10,6 +10,8 @@
   var form = document.querySelector("form[data-autosave]");
   if (!form || !window.fetch) return;
   var statusEl = form.querySelector("[data-autosave-status]");
+  // Read-only users see the sheet (tabs and all) but never post it.
+  var readonly = form.hasAttribute("data-readonly");
   var timer = null;
 
   function say(text) { if (statusEl) statusEl.textContent = text; }
@@ -75,6 +77,7 @@
     retryDelay = Math.min(retryDelay * 2, 60000);
   }
   function flush() {
+    if (readonly) return Promise.resolve();
     var p = pending();
     if (!p) return Promise.resolve();
     say("Guardando…");
@@ -92,6 +95,7 @@
     });
   }
   function save() {
+    if (readonly) return;
     remember(entries());
     flush();
   }
@@ -104,6 +108,7 @@
   // Back on this sheet with taps that never reached the server: put them on
   // the form (only if they are newer than what the server has) and send them.
   (function restore() {
+    if (readonly) return;
     var p = pending();
     if (!p) return;
     if (p.ts <= Number(form.dataset.updated || 0)) { forget(); return; }

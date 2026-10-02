@@ -7,7 +7,7 @@
     {% if match.is_active %}<span class="badge live">{{ "En curso" if match.is_web else "En vivo" }}</span>{% endif %}
   </h1>
   <div class="chips">
-    <a class="button-link" href="/dashboard/partidos/{{ match.id }}/editar">Editar</a>
+    {% if can_write %}<a class="button-link" href="/dashboard/partidos/{{ match.id }}/editar">Editar</a>{% endif %}
     <a class="button-link primary" href="/dashboard/partidos/{{ match.id }}/campo">Campo</a>
   </div>
 </div>
@@ -42,13 +42,14 @@
         {% if r.team %}<span class="muted">· {{ r.team }}</span>{% endif %}
         {% if r.rating is not none %}<span class="chip small">{{ r.rating | valoracion }} / 5</span>{% endif %}
       </span>
-      <a class="button-link{% if not r.evaluated %} primary{% endif %}" href="/dashboard/partidos/{{ match.id }}/jugadores/{{ r.id }}/evaluar">{{ "Ver evaluación" if r.evaluated else "Evaluar" }}</a>
+      {% if can_write or r.evaluated %}<a class="button-link{% if not r.evaluated %} primary{% endif %}" href="/dashboard/partidos/{{ match.id }}/jugadores/{{ r.id }}/evaluar">{{ "Ver evaluación" if r.evaluated else "Evaluar" }}</a>{% endif %}
     </li>
     {% endfor %}
   </ul>
   {% else %}
   <p class="muted">Todavía no hay jugadores en este partido.</p>
   {% endif %}
+  {% if can_write %}
   <form class="form inline-form" method="post" action="/dashboard/partidos/{{ match.id }}/evaluar">
     <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
     <label>Jugador <input name="nombre" placeholder="Nombre (opcional si pones dorsal)"></label>
@@ -67,6 +68,7 @@
     </label>
     <button type="submit">Evaluar otro jugador</button>
   </form>
+  {% endif %}
 </section>
 
 <section>

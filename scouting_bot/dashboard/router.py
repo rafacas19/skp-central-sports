@@ -35,6 +35,8 @@ from ..models import (
     CONTACT_NONE,
     CONTACT_STATUSES,
     FEET,
+    ROLE_LABELS,
+    DashboardUser,
     Prospect,
     ProspectPhoto,
     Squad,
@@ -44,7 +46,7 @@ from ..positions import ROLES
 from ..report import build_squad_workbook
 from ..storage import Storage
 from ..taxonomy import normalize_name
-from . import auth, forms, photos, queries, summaries
+from . import auth, forms, photos, queries, summaries, users
 
 router = APIRouter(prefix="/dashboard", include_in_schema=False)
 
@@ -122,17 +124,32 @@ templates.env.filters["minuto"] = _minuto
 templates.env.filters["valor"] = _valor
 
 
+ADMIN_NAV = ("Usuarios", "/dashboard/usuarios")
+
+
 def _render(
     request: Request, template: str, context: dict, status_code: int = 200
 ) -> HTMLResponse:
+    """Render a page with the shared chrome. The signed-in user (set by
+    auth.require_dashboard) decides the nav and which controls show: write
+    controls are hidden from read-only users, and the server refuses them
+    anyway."""
+    user = getattr(request.state, "dashboard_user", None)
+    if isinstance(user, str):  # the "unset" sentinel: no session looked up
+        user = None
+    nav = list(NAV) + ([ADMIN_NAV] if user is not None and user.is_admin else [])
     return templates.TemplateResponse(
         request,
         template,
         {
-            "nav": NAV,
+            "nav": nav,
             "path": request.url.path,
             "csrf": auth.make_csrf_token(),
             "csrf_field": auth.CSRF_FIELD,
+            "user": user,
+            "role_label": ROLE_LABELS.get(user.role, "") if user is not None else "",
+            "can_write": bool(user and user.can_write),
+            "is_admin": bool(user and user.is_admin),
             **context,
         },
         status_code=status_code,
@@ -140,44 +157,75 @@ def _render(
 
 
 # ── Login / logout (no session required) ─────────────────────────────────
+_NOT_CONFIGURED = "El panel no está configurado (falta DASHBOARD_SECRET)."
+_BAD_LOGIN = "Usuario o contraseña incorrectos."
+_LOCKED = "Demasiados intentos. Espera unos minutos y vuelve a probar."
+
+
+async def _login_hint() -> str | None:
+    """What to tell a visitor when nobody can possibly sign in yet."""
+    if await DashboardUser.exists():
+        return None
+    return ("Todavía no hay usuarios. Configura ADMIN_USERNAME y ADMIN_TEMP_PASSWORD "
+            "en Render y vuelve a desplegar para crear el primer administrador.")
+
+
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    if not settings.dashboard_password:
-        return _render(
-            request, "login.html",
-            {"error": "El panel no está configurado (falta DASHBOARD_PASSWORD)."},
-        )
-    return _render(request, "login.html", {"error": None})
+    if not auth.configured():
+        return _render(request, "login.html", {"error": _NOT_CONFIGURED, "username": ""})
+    return _render(request, "login.html", {"error": await _login_hint(), "username": ""})
 
 
 @router.post("/login")
-async def login_submit(request: Request, password: str = Form(default="")):
-    if not settings.dashboard_password:
-        return _render(
-            request, "login.html",
-            {"error": "El panel no está configurado (falta DASHBOARD_PASSWORD)."},
-        )
-    ip = auth.client_ip(request)
-    if not auth.register_attempt(ip):
-        return _render(
-            request, "login.html",
-            {"error": "Demasiados intentos. Espera unos minutos y vuelve a probar."},
-        )
-    if not auth.check_password(password):
-        return _render(request, "login.html", {"error": "Contraseña incorrecta."})
+async def login_submit(
+    request: Request, username: str = Form(default=""), password: str = Form(default="")
+):
+    """Sign in with a username and password.
 
-    auth.clear_attempts(ip)
-    response = RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    One error message whatever went wrong (unknown user, wrong password,
+    disabled account), and the same scrypt cost either way, so the page never
+    reveals which usernames exist. Limited per IP and per username."""
+    if not auth.configured():
+        return _render(request, "login.html", {"error": _NOT_CONFIGURED, "username": ""})
+    name = users.normalize_username(username)
+    keys = (f"ip:{auth.client_ip(request)}", f"user:{name}")
+
+    def fail(message: str = _BAD_LOGIN):
+        return _render(request, "login.html", {"error": message, "username": username},
+                       status_code=status.HTTP_401_UNAUTHORIZED)
+
+    if any(auth.over_limit(k) for k in keys):
+        return fail(_LOCKED)
+    user = await DashboardUser.get_or_none(username=name) if name else None
+    ok = user is not None and user.is_active and users.verify_password(password, user.password_hash)
+    if user is None:
+        users.burn_time(password)
+    if not ok:
+        for k in keys:
+            auth.register_attempt(k)
+        return fail()
+
+    for k in keys:
+        auth.clear_attempts(k)
+    user.last_login_at = datetime.now(timezone.utc)
+    await user.save(update_fields=["last_login_at"])
+    target = auth.CHANGE_PASSWORD_PATH if user.must_change_password else "/dashboard"
+    response = RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
+    _set_session(response, user)
+    return response
+
+
+def _set_session(response: Response, user: DashboardUser) -> None:
     response.set_cookie(
         auth.COOKIE_NAME,
-        auth.make_session_token(),
+        auth.make_session_token(user),
         max_age=auth.SESSION_TTL_S,
         httponly=True,
         secure=auth.cookie_secure(),
         samesite="lax",
         path="/dashboard",
     )
-    return response
 
 
 @router.post("/logout")

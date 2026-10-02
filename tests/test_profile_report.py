@@ -6,6 +6,8 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from tests.conftest import make_user
+
 from scouting_bot.ai.mock import MockAIProvider
 from scouting_bot.config import settings
 from scouting_bot.dashboard import auth, profile_report
@@ -34,7 +36,8 @@ async def client(storage):
     auth._attempts.clear()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        await c.post("/dashboard/login", data={"password": PASSWORD})
+        await make_user(password=PASSWORD)
+        await c.post("/dashboard/login", data={"username": "tester", "password": PASSWORD})
         yield c
     for f, v in old.items():
         _set(f, v)

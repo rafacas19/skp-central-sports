@@ -157,7 +157,9 @@ async def match_new_submit(request: Request):
         competition=values["competicion"] or None,
         category=values["categoria"] or None,
         location=values["sede"] or None,
-        scout_name=await storage.get_scout_name(chat_id),
+        # Who created it on the panel; the bot's scout name as a fallback.
+        scout_name=getattr(await auth.current_user(request), "display_name", None)
+        or await storage.get_scout_name(chat_id),
         match_date=_noon(played),
     )
     return RedirectResponse(
@@ -615,18 +617,18 @@ async def pitch_context(session: Session) -> dict:
         benches[side].sort(key=lambda p: (p["subbed_off"], p["number"] == "", p["number"] or 0))
     when = session.match_date or session.created_at
     actions = [
-        {"href": f"/dashboard/partidos/{session.id}/cambio", "label": "Hacer un cambio", "icon": "pitch"},
-        {"href": f"/dashboard/partidos/{session.id}/alineacion", "label": "Dorsales y nombres", "icon": "edit"},
-        {"href": f"/dashboard/partidos/{session.id}/sistema", "label": "Cambiar sistema", "icon": "pitch"},
+        {"href": f"/dashboard/partidos/{session.id}/cambio", "label": "Hacer un cambio", "write": True, "icon": "pitch"},
+        {"href": f"/dashboard/partidos/{session.id}/alineacion", "label": "Dorsales y nombres", "write": True, "icon": "edit"},
+        {"href": f"/dashboard/partidos/{session.id}/sistema", "label": "Cambiar sistema", "write": True, "icon": "pitch"},
         {"href": f"/dashboard/partidos/{session.id}", "label": "Detalle del partido", "icon": "list"},
         {"href": f"/dashboard/partidos/{session.id}/evaluaciones.xlsx", "label": "Excel de evaluaciones", "icon": "file"},
-        {"href": f"/dashboard/partidos/{session.id}/editar", "label": "Editar partido", "icon": "edit"},
+        {"href": f"/dashboard/partidos/{session.id}/editar", "label": "Editar partido", "write": True, "icon": "edit"},
         {"href": "/dashboard/partidos", "label": "Todos los partidos", "icon": "flag", "sep": True},
         {"href": "/dashboard/jugadores", "label": "Jugadores", "icon": "user"},
     ]
     if session.origin == ORIGIN_WEB and session.state == SESSION_ACTIVE:
         actions.append({"post": f"/dashboard/partidos/{session.id}/finalizar",
-                        "label": "Finalizar partido", "icon": "flag", "danger": True})
+                        "label": "Finalizar partido", "write": True, "icon": "flag", "danger": True})
     unnamed = sum(1 for r in rows if is_unnamed(r.prospect))
     return {
         "bar": {

@@ -1244,3 +1244,37 @@ h1 { overflow-wrap: anywhere; }
 .bench-player.off { opacity: 0.75; border-style: dashed; }
 .bench-off { color: var(--danger); font-weight: 800; font-size: 0.8rem; }
 .sheet .criterion-plain { display: flex; align-items: center; gap: 6px; min-height: 44px; }
+
+/* ── Accounts ── */
+.topbar-user { display: none; }
+@media (min-width: 720px) {
+  .topbar-user {
+    display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.15;
+    color: #fff; text-decoration: none; font-weight: 600; font-size: 0.85rem; white-space: nowrap;
+  }
+  .topbar-user span { color: #cfe7d8; font-weight: 400; font-size: 0.75rem; }
+}
+.menu-sheet .menu-user span { display: flex; flex-direction: column; line-height: 1.2; }
+.menu-sheet .menu-user small { color: var(--muted); font-weight: 400; }
+.login-card label { margin-top: 10px; }
+.login-help { margin-top: 14px; font-size: 0.85rem; }
+.password-form label { display: block; margin-top: 10px; font-weight: 600; }
+.password-form input { display: block; width: 100%; min-height: 44px; margin-top: 4px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; }
+.password-form button { margin-top: 14px; min-height: 44px; padding: 0 18px; border: none; border-radius: 10px;
+  background: var(--green-800); color: #fff; font-weight: 700; font-size: 1rem; cursor: pointer; }
+.temp-password { font-size: 1.15rem; font-weight: 800; letter-spacing: 0.04em; padding: 2px 8px; }
+.inline-row { display: flex; gap: 6px; align-items: center; margin: 0; }
+.inline-row select { min-height: 40px; }
+.user-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.user-actions form { margin: 0; }
+.form fieldset.sheet-body { border: 0; padding: 0; margin: 0; min-width: 0; background: none; }
+.sheet-body[disabled] .scale span { cursor: default; }
+.token.readonly { cursor: default; }
+.readonly-note { margin: 6px 0 10px; }
+.login-card button.chip-button {
+  width: auto; background: #fff; color: var(--green-800); border: 1px solid var(--border);
+  font-weight: 600; min-height: 44px; padding: 0 16px;
+}
+.temp-password { white-space: nowrap; display: inline-block; }
+.inline-row select { min-height: 44px; }

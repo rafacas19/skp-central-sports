@@ -18,7 +18,8 @@
 
 {# Identify: an unnamed player gets his name and dorsal; a named one can set his dorsal for this match. #}
 {% set iv = identify_values or {} %}
-{% if collision %}
+{% if not can_write %}<p class="muted readonly-note">Solo lectura: puedes ver la evaluación, no cambiarla.</p>{% endif %}
+{% if collision and can_write %}
 <div class="callout warn identify" role="alert">
   <p><strong>Ya existe {{ collision.name }}{% if collision.team %} en {{ collision.team }}{% endif %}.</strong> ¿Es el mismo jugador?</p>
   <p class="muted">Si lo es, este perfil se une al suyo: la puntuación y el puesto en la alineación pasan a su ficha.</p>
@@ -34,6 +35,7 @@
   </div>
 </div>
 {% endif %}
+{% if can_write %}
 <details class="identify-box" {% if player.unnamed or identify_error or collision %}open{% endif %}>
   <summary>{{ "Identificar jugador" if player.unnamed else "Dorsal en este partido" }}</summary>
   <form class="form identify-form" method="post" action="/dashboard/partidos/{{ match.id }}/jugadores/{{ player.id }}/identificar">
@@ -52,6 +54,8 @@
   </form>
 </details>
 
+{% endif %}
+{% if can_write %}
 <details class="profile-switch">
   <summary>Perfil: <strong>{{ profile.name if profile else "sin perfil (valoración única)" }}</strong> <span class="muted">· cambiar</span></summary>
   <form class="form inline-form" method="get" action="">
@@ -66,6 +70,7 @@
     <button type="submit">Cambiar</button>
   </form>
 </details>
+{% endif %}
 
 {% if switched %}
 <div class="callout warn">
@@ -75,7 +80,8 @@
 {% endif %}
 
 <form class="form sheet{% if profile %} sheet-tabbed{% endif %}" method="post" action="" data-autosave
-      data-csrf-field="{{ csrf_field }}" data-updated="{{ updated_ms }}">
+      data-csrf-field="{{ csrf_field }}" data-updated="{{ updated_ms }}"{% if not can_write %} data-readonly{% endif %}>
+  <fieldset class="sheet-body"{% if not can_write %} disabled{% endif %}>
   <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
   <input type="hidden" name="perfil" value="{{ profile.key if profile else '' }}">
 
@@ -154,16 +160,17 @@
   </section>
   {% endif %}
 
+  </fieldset>
   <div class="sheet-actions">
     <button type="button" class="button" data-prev hidden aria-label="Sección anterior">←</button>
     <span class="autosave-status" data-autosave-status role="status" aria-live="polite"></span>
-    <button type="submit" class="button primary" data-save>Guardar</button>
+    {% if can_write %}<button type="submit" class="button primary" data-save>Guardar</button>{% endif %}
     <button type="button" class="button primary" data-next hidden>Siguiente →</button>
     <a class="button primary" href="{{ bar.back }}" data-finish hidden>Terminar</a>
   </div>
 </form>
 
-{% if saved %}
+{% if saved and can_write %}
 <form class="squad-actions" method="post" action="/dashboard/partidos/{{ match.id }}/jugadores/{{ player.id }}/evaluar/borrar">
   <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
   <button type="submit">Borrar evaluación</button>
