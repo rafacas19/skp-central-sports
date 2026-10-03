@@ -5,6 +5,28 @@ tecnicismos.
 
 ---
 
+## Versión de octubre de 2026 (2) — «Usuarios»
+
+Nuevo en el **panel web**. El bot de Telegram no cambia.
+
+### 🔐 Usuarios y permisos
+Se acabó la contraseña compartida: cada persona entra con **su usuario y su
+contraseña**. Hay tres roles:
+
+- **Lectura**: ve todo el panel (partidos, jugadores, informes, Excel), pero no
+  cambia nada.
+- **Edición**: además crea y cambia datos (partidos, evaluaciones, jugadores,
+  selecciones).
+- **Administrador**: además gestiona los usuarios, en el menú **Usuarios**.
+
+Como todavía no hay correo electrónico, el administrador crea cada usuario con una
+**contraseña temporal** (se muestra una sola vez) y se la da en persona. Al entrar
+con ella, el panel pide elegir una propia. Si alguien la olvida, el administrador
+la **restablece** y le da otra temporal. Cualquiera puede cambiar la suya tocando
+su nombre arriba (o en **Menú**).
+
+---
+
 ## Versión de octubre de 2026 — «Partido en el panel»
 
 Nuevo en el **panel web**, pensado para usarlo **desde el móvil**. El bot de

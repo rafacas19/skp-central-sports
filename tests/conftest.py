@@ -54,7 +54,7 @@ async def storage():
     await conn.execute_query(
         "TRUNCATE observations, prospects, scout_profiles, sessions, "
         "squads, squad_members, evaluations, match_players, profile_reports, "
-        "prospect_photos RESTART IDENTITY CASCADE"
+        "prospect_photos, dashboard_users RESTART IDENTITY CASCADE"
     )
     try:
         yield Storage()
@@ -120,3 +120,15 @@ async def harness(storage, request):
     finally:
         fastapi_app.state.telegram_app = None
         await application.shutdown()
+
+
+async def make_user(username: str = "tester", password: str = "prueba-scouting",
+                    role: str = "admin", must_change: bool = False):
+    """A dashboard account for tests (admin by default, password already chosen)."""
+    from scouting_bot.dashboard.users import hash_password
+    from scouting_bot.models import DashboardUser
+
+    return await DashboardUser.create(
+        username=username, display_name=username.capitalize(), role=role,
+        password_hash=hash_password(password), must_change_password=must_change,
+    )

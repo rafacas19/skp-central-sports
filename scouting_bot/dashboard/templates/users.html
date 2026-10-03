@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Usuarios — Panel de Scouting{% endblock %}
+{% block content %}
+<h1>Usuarios</h1>
+<p class="muted">Lectura ve todo. Edición también crea y cambia datos. Administrador, además, gestiona usuarios.</p>
+
+{% if issued %}
+{# Shown once: the password is in this response only (no redirect, nothing
+   in a URL). A native <dialog>, opened as a modal by the script below; without
+   JavaScript the `open` attribute still shows it on the page. #}
+<dialog class="temp-dialog" id="temp-dialog" open aria-labelledby="temp-title">
+  <h2 id="temp-title">{{ "Usuario creado" if issued.new else "Contraseña restablecida" }}</h2>
+  <p class="temp-who">Usuario: <strong>{{ issued.username }}</strong></p>
+  <p class="temp-label">Contraseña temporal</p>
+  <div class="temp-row">
+    <code class="temp-password" id="temp-password">{{ issued.password }}</code>
+    <button type="button" class="button" data-copy="#temp-password">Copiar</button>
+  </div>
+  <p class="temp-status" role="status" aria-live="polite"></p>
+  <p class="muted">Dásela en persona o por un canal privado: <strong>no se volverá a mostrar</strong>. Al entrar con ella, tendrá que elegir su propia contraseña.</p>
+  <form method="dialog" class="temp-actions">
+    <button type="submit" class="button primary" autofocus>Ya la he copiado</button>
+  </form>
+</dialog>
+<script>
+  (function () {
+    var d = document.getElementById("temp-dialog");
+    if (d && d.showModal) { d.removeAttribute("open"); d.showModal(); }
+    var btn = d && d.querySelector("[data-copy]");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var text = document.querySelector(btn.dataset.copy).textContent.trim();
+      var status = d.querySelector(".temp-status");
+      function done(ok) { status.textContent = ok ? "Copiada al portapapeles." : "Selecciónala y cópiala a mano."; }
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+      } else {
+        // http://<ip> on the local network is not a secure context: fall back.
+        var r = document.createRange(); r.selectNodeContents(document.querySelector(btn.dataset.copy));
+        var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        try { done(document.execCommand("copy")); } catch (e) { done(false); }
+      }
+    });
+  })();
+</script>
+{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+<table class="stack">
+  <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th></th></tr></thead>
+  <tbody>
+    {% for u in users %}
+    <tr>
+      <td><strong>{{ u.username }}</strong>{% if u.is_me %} <span class="chip small">tú</span>{% endif %}</td>
+      <td data-label="Nombre">{{ u.display_name }}</td>
+      <td data-label="Rol">
+        <form method="post" action="/dashboard/usuarios/{{ u.id }}/rol" class="inline-row">
+          <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+          <select name="rol" aria-label="Rol de {{ u.username }}" onchange="this.form.submit()">
+            {% for key, label in roles %}<option value="{{ key }}" {% if key == u.role %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+          <noscript><button type="submit" class="chip-button">Cambiar</button></noscript>
+        </form>
+      </td>
+      <td data-label="Estado">
+        {% if not u.active %}<span class="badge">Desactivado</span>
+        {% elif u.pending %}<span class="badge single">Pendiente de contraseña</span>
+        {% else %}<span class="badge live">Activo</span>{% endif %}
+      </td>
+      <td data-label="Último acceso">{{ u.last_login | fecha if u.last_login else "—" }}</td>
+      <td data-label="" class="user-actions">
+        <form method="post" action="/dashboard/usuarios/{{ u.id }}/restablecer">
+          <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+          <button type="submit" class="chip-button">Restablecer contraseña</button>
+        </form>
+        {% if not u.is_me %}
+        <form method="post" action="/dashboard/usuarios/{{ u.id }}/estado">
+          <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+          <input type="hidden" name="activo" value="{{ '0' if u.active else '1' }}">
+          <button type="submit" class="chip-button">{{ "Desactivar" if u.active else "Activar" }}</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Nuevo usuario</h2>
+<form method="post" action="/dashboard/usuarios" class="form">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <div class="form-grid">
+    <label>Usuario
+      <input name="usuario" value="{{ values.usuario or '' }}" required autocapitalize="none" spellcheck="false" maxlength="40" placeholder="p. ej. wilmer">
+      <span class="hint">3 a 40 caracteres: letras, números, «.», «_» o «-».</span>
+    </label>
+    <label>Nombre
+      <input name="nombre" value="{{ values.nombre or '' }}" maxlength="80" placeholder="Wilmer Leguizamón">
+    </label>
+    <label>Rol
+      <select name="rol">
+        {% for key, label in roles %}<option value="{{ key }}" {% if (values.rol or 'read') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Contraseña temporal (opcional)
+      <input name="temporal" maxlength="80" autocomplete="off" placeholder="Se genera una si lo dejas vacío">
+    </label>
+  </div>
+  <div class="form-actions"><button type="submit" class="primary">Crear usuario</button></div>
+</form>
+{% endblock %}

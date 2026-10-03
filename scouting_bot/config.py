@@ -112,11 +112,15 @@ class Settings:
     api_key: str
 
     # ── Dashboard (server-rendered web UI) ───────────────────────────────
-    # Shared password for /dashboard. Empty ⇒ dashboard disabled (503), same
-    # philosophy as api_key. The secret signs the session cookie; when unset it
-    # falls back to the password so one env var is enough for local dev.
+    # Sign-in is per user (dashboard_users). DASHBOARD_SECRET signs the session
+    # cookie; DASHBOARD_PASSWORD — the old shared password — is now only its
+    # fallback signing key. With neither set the dashboard is disabled (503).
+    # ADMIN_USERNAME + ADMIN_TEMP_PASSWORD seed the first admin at startup when
+    # that user doesn't exist yet (never overwriting one that does).
     dashboard_password: str
     dashboard_secret: str
+    admin_username: str
+    admin_temp_password: str
     # The Telegram chat the dashboard works for (records it creates are keyed
     # to it). 0 ⇒ the chat with the most bot matches.
     owner_chat_id: int
@@ -140,6 +144,8 @@ class Settings:
             api_key=os.getenv("API_KEY", ""),
             dashboard_password=os.getenv("DASHBOARD_PASSWORD", ""),
             dashboard_secret=os.getenv("DASHBOARD_SECRET", ""),
+            admin_username=os.getenv("ADMIN_USERNAME", "").strip(),
+            admin_temp_password=os.getenv("ADMIN_TEMP_PASSWORD", ""),
             owner_chat_id=int(os.getenv("OWNER_CHAT_ID", "0") or 0),
         )
         s.validate()

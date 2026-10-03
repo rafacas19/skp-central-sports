@@ -9,7 +9,7 @@
   </h1>
   <div class="chips">
     <a class="button-link" href="/dashboard/jugadores/{{ player.id }}/informe">Informe de perfil</a>
-    <a class="button-link primary" href="/dashboard/jugadores/{{ player.id }}/editar">Editar</a>
+    {% if can_write %}<a class="button-link primary" href="/dashboard/jugadores/{{ player.id }}/editar">Editar</a>{% endif %}
   </div>
 </div>
 {% if player.is_temporary %}
@@ -46,7 +46,7 @@
   <div><span class="meta-label">Observaciones</span>{{ player.observations }}</div>
 </section>
 
-{% if squads or squad_options %}
+{% if squads or (squad_options and can_write) %}
 <section class="squads">
   <h2>Selecciones</h2>
   {% if squads %}
@@ -58,7 +58,7 @@
   {% else %}
   <p class="muted">Sin convocatorias. Su club sigue siendo {{ player.team or "el que tenga registrado" }}.</p>
   {% endif %}
-  {% if squad_options %}
+  {% if squad_options and can_write %}
   <form class="form inline-form" method="post" action="/dashboard/jugadores/{{ player.id }}/seleccion">
     <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
     <label>Convocar a
@@ -100,6 +100,7 @@
   {% if player.agent_name or player.agent_phone %}
   <p class="muted">Agente: {{ player.agent_name or "—" }}{% if player.agent_phone %} · {{ player.agent_phone }}{% endif %}</p>
   {% endif %}
+  {% if can_write %}
   <div class="chips">
     {% for c in contact_options %}
     {% if c != player.contact_status %}
@@ -112,6 +113,7 @@
     {% endfor %}
   </div>
   <p class="hint muted">Al marcar un estado se guarda la fecha de hoy como último contacto.</p>
+  {% endif %}
 </section>
 
 {% if player.notes %}

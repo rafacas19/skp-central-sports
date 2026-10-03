@@ -441,3 +441,45 @@ class ProspectPhoto(Model):
 
     class Meta:
         table = "prospect_photos"
+
+
+# Dashboard roles, least to most powerful. `read` sees everything, `write` also
+# changes data, `admin` also manages users.
+ROLE_READ = "read"
+ROLE_WRITE = "write"
+ROLE_ADMIN = "admin"
+ROLES = (ROLE_READ, ROLE_WRITE, ROLE_ADMIN)
+ROLE_LABELS = {ROLE_READ: "Lectura", ROLE_WRITE: "Edición", ROLE_ADMIN: "Administrador"}
+
+
+class DashboardUser(Model):
+    """A person who signs in to the dashboard.
+
+    Separate from the Telegram scout (`agent_chat_id`): the bot identifies its
+    scout by chat, the panel identifies its users by username and password.
+    `password_hash` is scrypt (see dashboard/users.py) — never the password.
+    `session_version` is part of every session cookie: bumping it (password
+    change, reset, role change, disabling) signs that user out everywhere.
+    """
+
+    id = fields.IntField(primary_key=True)
+    username = fields.CharField(max_length=40, unique=True)  # stored lowercased
+    display_name = fields.CharField(max_length=80)
+    role = fields.CharField(max_length=8, default=ROLE_READ)
+    password_hash = fields.TextField()
+    must_change_password = fields.BooleanField(default=True)
+    is_active = fields.BooleanField(default=True)
+    session_version = fields.IntField(default=1)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    last_login_at = fields.DatetimeField(null=True)
+
+    class Meta:
+        table = "dashboard_users"
+
+    @property
+    def can_write(self) -> bool:
+        return self.role in (ROLE_WRITE, ROLE_ADMIN)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == ROLE_ADMIN

@@ -16,7 +16,7 @@
   {% for t in tokens %}
   {% set cls = "token " ~ t.side ~ (" done" if t.evaluated else "") ~ (" unnamed" if t.unnamed else "") ~ (" empty" if t.empty else "") %}
   {% set shirt = t.number if t.number != "" else "" %}
-  {% if t.empty %}
+  {% if t.empty and can_write %}
   <form class="token-form" method="post" action="/dashboard/partidos/{{ match.id }}/puesto/{{ t.side }}/{{ t.slot }}">
     <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
     <button type="submit" class="{{ cls }}" style="--x: {{ t.left }}; --y: {{ t.top }}"
@@ -25,6 +25,11 @@
       <span class="token-name" aria-hidden="true">{{ t.label }}</span>
     </button>
   </form>
+  {% elif t.empty %}
+  <span class="{{ cls }} readonly" style="--x: {{ t.left }}; --y: {{ t.top }}" aria-label="{{ t.role }}, sin jugador asignado">
+    <span class="shirt" aria-hidden="true"></span>
+    <span class="token-name" aria-hidden="true">{{ t.label }}</span>
+  </span>
   {% else %}
   <a class="{{ cls }}" style="--x: {{ t.left }}; --y: {{ t.top }}"
      href="/dashboard/partidos/{{ match.id }}/jugadores/{{ t.id }}/evaluar"
@@ -40,13 +45,15 @@
 
 <section class="pitch-below">
   <p id="pitch-hint" class="pitch-hint">
-    Toca un jugador para puntuarlo. Los puestos vacíos también se pueden puntuar; el nombre y el dorsal se añaden cuando quieras{% if unnamed %} · {{ unnamed }} sin identificar{% endif %}.
+    {% if can_write %}Toca un jugador para puntuarlo. Los puestos vacíos también se pueden puntuar; el nombre y el dorsal se añaden cuando quieras{% else %}Toca un jugador para ver su evaluación{% endif %}{% if unnamed %} · {{ unnamed }} sin identificar{% endif %}.
   </p>
+  {% if can_write %}
   <div class="sub-actions">
     {% for b in benches %}
     <a class="button" href="/dashboard/partidos/{{ match.id }}/cambio?lado={{ b.side }}">Cambio · {{ b.team }}</a>
     {% endfor %}
   </div>
+  {% endif %}
   {% for b in benches %}
   {% if b.players %}
   <div class="bench">
@@ -60,7 +67,7 @@
           {% if p.subbed_off %}<span class="bench-off">↓{% if p.sub_minute is not none %} {{ p.sub_minute }}'{% endif %}<span class="sr-only"> sustituido</span></span>{% endif %}
           {% if p.rating is not none %}<span class="bench-rating">{{ p.rating | valoracion }}</span>{% endif %}
         </a>
-        {% if p.undo_row %}
+        {% if p.undo_row and can_write %}
         <form method="post" action="/dashboard/partidos/{{ match.id }}/cambio/{{ p.undo_row }}/deshacer">
           <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
           <button type="submit" class="chip-button">Deshacer cambio</button>
@@ -77,7 +84,7 @@
 <div class="pitch-empty">
   <p><strong>Todavía no hay alineaciones.</strong></p>
   <p class="muted">Pon los dorsales o los nombres de los dos equipos y aparecerán aquí, listos para puntuar.</p>
-  <a class="button-link primary" href="/dashboard/partidos/{{ match.id }}/alineacion">Poner alineaciones</a>
+  {% if can_write %}<a class="button-link primary" href="/dashboard/partidos/{{ match.id }}/alineacion">Poner alineaciones</a>{% endif %}
 </div>
 {% endif %}
 {% endblock %}

@@ -39,12 +39,19 @@ services:
         generateValue: true       # required in X-API-Key for /sessions endpoints
 
       # ── Dashboard (/dashboard web UI) ───────────────────────────────────
-      # Until DASHBOARD_PASSWORD is set in the Render dashboard, /dashboard
-      # returns 503 (disabled). The secret signs the session cookie.
+      # Dashboard sign-in is per user. DASHBOARD_SECRET signs the session
+      # cookie (DASHBOARD_PASSWORD, the old shared password, is only its
+      # fallback now). ADMIN_USERNAME + ADMIN_TEMP_PASSWORD create the first
+      # admin at startup if that user doesn't exist yet; they never overwrite
+      # an existing account, so they can stay set.
       - key: DASHBOARD_PASSWORD
-        sync: false               # choose a password in the dashboard (secret)
+        sync: false
       - key: DASHBOARD_SECRET
         generateValue: true
+      - key: ADMIN_USERNAME
+        sync: false               # e.g. "admin"
+      - key: ADMIN_TEMP_PASSWORD
+        sync: false               # first sign-in asks to replace it
       # The scout's Telegram chat id: the dashboard creates its matches and
       # players under it. Unset ⇒ the chat with the most bot matches.
       - key: OWNER_CHAT_ID

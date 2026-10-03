@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-head">
   <h1>Jugadores</h1>
-  <a class="button-link primary" href="/dashboard/jugadores/nuevo">+ Nuevo jugador</a>
+  {% if can_write %}<a class="button-link primary" href="/dashboard/jugadores/nuevo">+ Nuevo jugador</a>{% endif %}
 </div>
 
 {% set fns = namespace(n=0) %}{% for k, v in filters.items() %}{% if k not in ("any", "orden") and v %}{% set fns.n = fns.n + 1 %}{% endif %}{% endfor %}

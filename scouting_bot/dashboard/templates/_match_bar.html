@@ -11,7 +11,7 @@
   <details class="menu matchbar-menu" data-menu>
     <summary class="icon-button">{{ icon("more", "Más acciones") }}</summary>
     <nav class="menu-sheet" aria-label="Acciones del partido">
-      {% for a in bar.actions %}
+      {% for a in bar.actions if can_write or not a.write %}
       {% if a.post %}
       <form class="{{ 'menu-sep' if a.danger else '' }}" method="post" action="{{ a.post }}">
         <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">

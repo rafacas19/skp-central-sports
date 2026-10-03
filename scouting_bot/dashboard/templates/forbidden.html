@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Sin permiso — Panel de Scouting{% endblock %}
+{% block content %}
+<h1>Sin permiso</h1>
+<p>{{ message }}</p>
+{% if user %}<p class="muted">Tu usuario ({{ user.username }}) tiene el rol <strong>{{ role_label }}</strong>.</p>{% endif %}
+<p><a class="button-link" href="/dashboard">Volver al inicio</a></p>
+{% endblock %}
