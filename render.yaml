@@ -52,6 +52,10 @@ services:
         sync: false               # e.g. "admin"
       - key: ADMIN_TEMP_PASSWORD
         sync: false               # first sign-in asks to replace it
+      # The scout's Telegram chat id: the dashboard creates its matches and
+      # players under it. Unset ⇒ the chat with the most bot matches.
+      - key: OWNER_CHAT_ID
+        sync: false
 
       # ── Telegram ───────────────────────────────────────────────────────
       - key: TELEGRAM_BOT_TOKEN

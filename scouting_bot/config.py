@@ -121,6 +121,9 @@ class Settings:
     dashboard_secret: str
     admin_username: str
     admin_temp_password: str
+    # The Telegram chat the dashboard works for (records it creates are keyed
+    # to it). 0 ⇒ the chat with the most bot matches.
+    owner_chat_id: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -143,6 +146,7 @@ class Settings:
             dashboard_secret=os.getenv("DASHBOARD_SECRET", ""),
             admin_username=os.getenv("ADMIN_USERNAME", "").strip(),
             admin_temp_password=os.getenv("ADMIN_TEMP_PASSWORD", ""),
+            owner_chat_id=int(os.getenv("OWNER_CHAT_ID", "0") or 0),
         )
         s.validate()
         return s

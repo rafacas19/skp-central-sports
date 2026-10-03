@@ -13,13 +13,17 @@ import re
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
+from tortoise.functions import Count
+
 from ..categories import split_category
+from ..config import settings
 from ..models import (
     AWAY,
     CONTACT_NONE,
     CONTACT_STATUSES,
     DECISION_ADVANCE,
     HOME,
+    ORIGIN_BOT,
     ORIGIN_WEB,
     RATING_DECISIONS,
     SESSION_ACTIVE,
@@ -658,20 +662,30 @@ async def identity_taken(
 
 
 async def scout_chat_id() -> int:
-    """The chat id new dashboard records belong to.
+    """The chat id new dashboard records belong to — the panel's owner chat.
 
     Prospects are keyed per scout (`agent_chat_id`), but the dashboard has no
-    Telegram identity of its own — it is the same single scout the bot serves
-    (see the module docstring). Take it from the most recent session, falling
-    back to any existing prospect, so a player created here is the one the bot
-    finds when it hears that name. On a virgin database there is nobody yet: 0
-    is a placeholder the first bot session will never collide with, and the
-    profile can be merged if it ever needs to be.
+    Telegram identity of its own: it works for the scout the bot serves, so a
+    player created here is the one the bot finds when it hears that name.
+
+    `OWNER_CHAT_ID` names that chat. Without it, the chat with the most bot
+    matches is used — stable, unlike "the most recent session", which made the
+    panel drift onto whatever test chat last used the bot. Then any prospect's
+    chat; on a virgin database, 0 (a placeholder no real chat collides with).
     """
-    session = await Session.all().order_by("-id").first()
-    if session is not None:
-        return session.agent_chat_id
-    prospect = await Prospect.all().order_by("-id").first()
+    if settings.owner_chat_id:
+        return settings.owner_chat_id
+    rows = await (
+        Session.filter(origin=ORIGIN_BOT)
+        .annotate(n=Count("id"))
+        .group_by("agent_chat_id")
+        .order_by("-n", "agent_chat_id")
+        .limit(1)
+        .values_list("agent_chat_id", flat=True)
+    )
+    if rows:
+        return rows[0]
+    prospect = await Prospect.all().order_by("id").first()
     return prospect.agent_chat_id if prospect is not None else 0
 
 
