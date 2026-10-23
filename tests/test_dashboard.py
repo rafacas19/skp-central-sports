@@ -12,6 +12,8 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from tests.conftest import make_user
+
 from scouting_bot.config import settings
 from scouting_bot.dashboard import auth, queries
 from scouting_bot.models import Observation, Prospect, Session, Squad, SquadMember
@@ -35,26 +37,28 @@ async def client(storage):
         yield c
 
 
-@pytest.fixture
-def dashboard_auth():
-    """Configure the dashboard password for a test; restore afterwards. Also
-    pins mock AI: the AI-summary routes resolve the provider from settings at
-    call time, and tests must never depend on the host's .env (nor spend real
-    API tokens) — the rest of the suite injects MockAIProvider explicitly."""
+@pytest_asyncio.fixture
+async def dashboard_auth(storage):
+    """A signing key and an admin account ("tester" / PASSWORD) for a test;
+    settings restored afterwards. Also pins mock AI: the AI-summary routes
+    resolve the provider from settings at call time, and tests must never
+    depend on the host's .env (nor spend real API tokens)."""
     old_pw = _set("dashboard_password", PASSWORD)
     old_secret = _set("dashboard_secret", "")
     old_mock = settings.use_mock_ai
     object.__setattr__(settings, "use_mock_ai", True)
     auth._attempts.clear()
-    yield
+    user = await make_user(password=PASSWORD)
+    yield user
     _set("dashboard_password", old_pw)
     _set("dashboard_secret", old_secret)
     object.__setattr__(settings, "use_mock_ai", old_mock)
     auth._attempts.clear()
 
 
-async def _login(client: httpx.AsyncClient, password: str = PASSWORD) -> httpx.Response:
-    return await client.post("/dashboard/login", data={"password": password})
+async def _login(client: httpx.AsyncClient, password: str = PASSWORD,
+                 username: str = "tester") -> httpx.Response:
+    return await client.post("/dashboard/login", data={"username": username, "password": password})
 
 
 async def _seed() -> dict:
@@ -137,8 +141,8 @@ async def test_login_page_renders(client, dashboard_auth):
 
 async def test_wrong_password_rejected(client, dashboard_auth):
     resp = await _login(client, "incorrecta")
-    assert resp.status_code == 200
-    assert "Contraseña incorrecta" in resp.text
+    assert resp.status_code == 401
+    assert "Usuario o contraseña incorrectos" in resp.text
     assert auth.COOKIE_NAME not in client.cookies
 
     # And the session page still redirects.
@@ -170,16 +174,16 @@ async def test_tampered_cookie_redirects(client, dashboard_auth):
     import time
 
     client.cookies.set(
-        auth.COOKIE_NAME, f"{int(time.time()) + 1000}.{'0' * 64}", path="/dashboard"
+        auth.COOKIE_NAME, f"1.1.{int(time.time()) + 1000}.{'0' * 64}", path="/dashboard"
     )
     resp = await client.get("/dashboard")
     assert resp.status_code == 303
 
 
 async def test_expired_token_rejected(dashboard_auth):
-    token = auth.make_session_token(now=0)  # expired long ago
-    assert not auth.verify_session_token(token)
-    assert auth.verify_session_token(auth.make_session_token())
+    token = auth.make_session_token(dashboard_auth, now=0)  # expired long ago
+    assert auth.read_session_token(token) is None
+    assert auth.read_session_token(auth.make_session_token(dashboard_auth)) == (dashboard_auth.id, 1)
 
 
 # ── Overview page ────────────────────────────────────────────────────────

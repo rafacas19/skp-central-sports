@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-head">
   <h1>Jugadores</h1>
-  <a class="button-link primary" href="/dashboard/jugadores/nuevo">+ Nuevo jugador</a>
+  {% if can_write %}<a class="button-link primary" href="/dashboard/jugadores/nuevo">+ Nuevo jugador</a>{% endif %}
 </div>
 
 {% set fns = namespace(n=0) %}{% for k, v in filters.items() %}{% if k not in ("any", "orden") and v %}{% set fns.n = fns.n + 1 %}{% endif %}{% endfor %}
@@ -53,7 +53,7 @@
 <form method="get" action="/dashboard/jugadores/eliminar" class="bulk-form">
 <div class="bulk-bar">
   <p class="muted">{{ players | length }} jugador{{ "es" if players | length != 1 }}</p>
-  <button type="submit" class="chip-button danger">Eliminar seleccionados</button>
+  {% if can_write %}<button type="submit" class="chip-button danger">Eliminar seleccionados</button>{% endif %}
 </div>
 <table class="stack stack-wide">
   <thead>
@@ -62,7 +62,7 @@
   <tbody>
     {% for p in players %}
     <tr>
-      <td class="pick-cell"><input type="checkbox" name="ids" value="{{ p.id }}" aria-label="Seleccionar {{ p.name }}"><a href="/dashboard/jugadores/{{ p.id }}">{{ p.name }}</a></td>
+      <td class="pick-cell">{% if can_write %}<input type="checkbox" name="ids" value="{{ p.id }}" aria-label="Seleccionar {{ p.name }}">{% endif %}<a href="/dashboard/jugadores/{{ p.id }}">{{ p.name }}</a></td>
       <td data-label="Posición">{% if p.position_abbr %}<span class="pos-badge">{{ p.position_abbr }}</span>{% else %}{{ p.position or "—" }}{% endif %}</td>
       <td data-label="Edad" class="num">{{ p.age or "—" }}</td>
       <td data-label="Equipo">{{ p.team or "—" }}</td>

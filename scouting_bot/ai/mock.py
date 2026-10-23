@@ -57,15 +57,26 @@ class MockAIProvider(AIProvider):
         notes = [_classify_one(frag, home_team, away_team) for frag in fragments]
         return [n for n in notes if n is not None]
 
-    async def summarize_player(self, observations: list[dict]) -> str:
+    async def summarize_player(
+        self, observations: list[dict], evaluations: list[dict] | None = None
+    ) -> str:
         n = len(observations)
         matches = {o.get("match") for o in observations if o.get("match")}
         quotes = [o.get("observation", "") for o in observations][:3]
         joined = "; ".join(q for q in quotes if q)
-        return (
+        text = (
             f"Resumen: {n} observación(es) en {len(matches)} partido(s). "
             f"Notas recurrentes: {joined}. Recomendación: seguir observando."
         )
+        if evaluations:
+            last = evaluations[-1]
+            strengths = [s for sec in last.get("sections", []) for s in sec.get("strengths", [])]
+            text += (
+                f" Puntuado por perfil en {len(evaluations)} partido(s); último: "
+                f"{last.get('profile') or 'valoración única'} {last.get('rating')}"
+                + (f", destaca en {', '.join(strengths[:3])}." if strengths else ".")
+            )
+        return text
 
     async def draft_profile_report(self, report: dict) -> dict:
         sections = {}

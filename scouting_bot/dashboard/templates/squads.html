@@ -8,6 +8,7 @@
 <p class="muted">Una selección es una convocatoria, no un club: el jugador conserva
 su equipo y aparece además en la lista que le corresponda.</p>
 
+{% if can_write %}
 <form class="form inline-form" method="post" action="/dashboard/selecciones">
   <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
   <label>Nueva selección
@@ -20,6 +21,7 @@ su equipo y aparece además en la lista que le corresponda.</p>
   </label>
   <button type="submit">Crear</button>
 </form>
+{% endif %}
 {% if error %}<p class="field-error">{{ error }}</p>{% endif %}
 
 {% if squads %}

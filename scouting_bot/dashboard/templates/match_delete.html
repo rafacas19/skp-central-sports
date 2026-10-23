@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Borrar partido — Panel de Scouting{% endblock %}
+{% block content %}
+<p><a class="back" href="/dashboard/partidos/{{ match.id }}">← {{ match.title }}</a></p>
+<h1>¿Borrar el partido?</h1>
+{% if match.is_web %}
+<div class="callout warn">
+  <p><strong>{{ match.title }}</strong> · {{ match.date | fecha }}</p>
+  <p>Se borrarán {{ counts.evaluations }} evaluaciones, {{ counts.observations }} observaciones y la alineación
+  ({{ counts.lineup }} jugadores). Los jugadores sin identificar de este partido desaparecen; los que tienen nombre
+  siguen en <strong>Jugadores</strong> con sus otros partidos, y su valoración vuelve a la de su último partido
+  que quede.</p>
+  <p><strong>No se puede deshacer.</strong></p>
+</div>
+<form method="post" action="/dashboard/partidos/{{ match.id }}/borrar" class="form-actions">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <button type="submit" class="primary danger">Sí, borrar el partido</button>
+  <a class="button-link" href="/dashboard/partidos/{{ match.id }}">Cancelar</a>
+</form>
+{% else %}
+<p class="muted">Este partido se capturó con el bot, así que no se borra desde el panel: es el registro de tus notas en el campo.</p>
+<p><a class="button-link" href="/dashboard/partidos/{{ match.id }}">Volver al partido</a></p>
+{% endif %}
+{% endblock %}

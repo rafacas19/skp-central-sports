@@ -4,10 +4,12 @@
 <p><a class="back" href="/dashboard/jugadores">← Jugadores</a></p>
 <div class="page-head">
   <div class="profile-title">
-  <a class="avatar profile-avatar" href="/dashboard/jugadores/{{ player.id }}/editar#foto" title="{{ 'Cambiar foto' if player.has_photo else 'Subir foto' }}">
-    {% if player.has_photo %}<img src="/dashboard/foto/{{ player.id }}" alt="Foto de {{ player.name }}">
-    {% else %}<span>{{ player.initials }}</span>{% endif %}
-  </a>
+  {% set avatar %}{% if player.has_photo %}<img src="/dashboard/foto/{{ player.id }}" alt="Foto de {{ player.name }}">{% else %}<span>{{ player.initials }}</span>{% endif %}{% endset %}
+  {% if can_write %}
+  <a class="avatar profile-avatar" href="/dashboard/jugadores/{{ player.id }}/editar#foto" title="{{ 'Cambiar foto' if player.has_photo else 'Subir foto' }}">{{ avatar }}</a>
+  {% else %}
+  <div class="avatar profile-avatar">{{ avatar }}</div>
+  {% endif %}
   <h1>{{ player.name }}
     {% if player.rating is not none %}<span class="chip">{{ player.rating | valoracion }} / 5</span>{% endif %}
     {% if player.decision %}<span class="chip">{{ player.decision }}</span>{% endif %}
@@ -15,8 +17,8 @@
   </div>
   <div class="chips">
     <a class="button-link" href="/dashboard/jugadores/{{ player.id }}/informe">Informe de perfil</a>
-    <a class="button-link primary" href="/dashboard/jugadores/{{ player.id }}/editar">Editar</a>
-    <a class="button-link danger" href="/dashboard/jugadores/eliminar?ids={{ player.id }}">Eliminar</a>
+    {% if can_write %}<a class="button-link primary" href="/dashboard/jugadores/{{ player.id }}/editar">Editar</a>
+    <a class="button-link danger" href="/dashboard/jugadores/eliminar?ids={{ player.id }}">Eliminar</a>{% endif %}
   </div>
 </div>
 {% if player.is_temporary %}
@@ -54,7 +56,7 @@
   <div><span class="meta-label">Observaciones</span>{{ player.observations }}</div>
 </section>
 
-{% if squads or squad_options %}
+{% if squads or (squad_options and can_write) %}
 <section class="squads">
   <h2>Selecciones</h2>
   {% if squads %}
@@ -66,7 +68,7 @@
   {% else %}
   <p class="muted">Sin convocatorias. Su club sigue siendo {{ player.team or "el que tenga registrado" }}.</p>
   {% endif %}
-  {% if squad_options %}
+  {% if squad_options and can_write %}
   <form class="form inline-form" method="post" action="/dashboard/jugadores/{{ player.id }}/seleccion">
     <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
     <label>Convocar a
@@ -108,6 +110,7 @@
   {% if player.agent_name or player.agent_phone %}
   <p class="muted">Agente: {{ player.agent_name or "—" }}{% if player.agent_phone %} · {{ player.agent_phone }}{% endif %}</p>
   {% endif %}
+  {% if can_write %}
   <div class="chips">
     {% for c in contact_options %}
     {% if c != player.contact_status %}
@@ -120,6 +123,7 @@
     {% endfor %}
   </div>
   <p class="hint muted">Al marcar un estado se guarda la fecha de hoy como último contacto.</p>
+  {% endif %}
 </section>
 
 {% if player.notes %}

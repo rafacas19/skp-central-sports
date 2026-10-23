@@ -24,6 +24,7 @@
     <a href="{{ href }}" {% if label == ns.section %}class="active" aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
   </nav>
+  {% if user %}<a class="topbar-user" href="/dashboard/cuenta/contrasena" title="Mi cuenta">{{ user.display_name }}<span>{{ role_label }}</span></a>{% endif %}
   <form class="logout" method="post" action="/dashboard/logout">
     <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
     <button type="submit">Salir</button>
@@ -34,7 +35,8 @@
       {% for label, href in nav %}
       <a href="{{ href }}" {% if label == ns.section %}class="active" aria-current="page"{% endif %}>{{ label }}</a>
       {% endfor %}
-      <form class="menu-sep" method="post" action="/dashboard/logout">
+      {% if user %}<a class="menu-sep menu-user" href="/dashboard/cuenta/contrasena">{{ icon("user") }}<span>{{ user.display_name }}<small>{{ role_label }} · cambiar contraseña</small></span></a>{% endif %}
+      <form class="{{ '' if user else 'menu-sep' }}" method="post" action="/dashboard/logout">
         <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
         <button type="submit">{{ icon("logout") }}Salir</button>
       </form>

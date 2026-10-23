@@ -357,6 +357,8 @@ class Storage:
         if not ids:
             return 0
         await Observation.filter(prospect_id__in=ids).delete()
+        # Whoever came on for a deleted player simply stays on (a plain id, no FK).
+        await MatchPlayer.filter(came_on_for_id__in=ids).update(came_on_for_id=None)
         return await Prospect.filter(id__in=ids).delete()
 
     async def prospects_in_session(self, session_id: int) -> list[Prospect]:

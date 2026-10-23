@@ -25,10 +25,12 @@
         <td><a href="/dashboard/jugadores/{{ p.id }}">{{ p.cells[0] }}<span class="stack-only"> {{ p.cells[1] }}</span></a></td>
         {% for cell in p.cells[1:] %}<td data-label="{{ columns[loop.index] | capitalize }}"{% if loop.first %} class="stack-hide"{% endif %}>{{ cell if cell not in ("", None) else "—" }}</td>{% endfor %}
         <td class="stack-actions">
+          {% if can_write %}
           <form method="post" action="/dashboard/selecciones/{{ id }}/jugadores/{{ p.id }}/quitar">
             <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
             <button type="submit" class="chip-button">Quitar</button>
           </form>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -39,7 +41,8 @@
 <p class="muted">La lista está vacía. Convoca abajo a jugadores ya observados.</p>
 {% endif %}
 
-{% if candidates %}
+{% if not can_write %}
+{% elif candidates %}
 <form class="form inline-form" method="post" action="/dashboard/selecciones/{{ id }}/jugadores">
   <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
   <label>Convocar jugador
@@ -55,9 +58,11 @@
 <p class="muted">No queda ningún jugador por convocar.</p>
 {% endif %}
 
+{% if can_write %}
 <form class="squad-actions" method="post" action="/dashboard/selecciones/{{ id }}/eliminar">
   <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
   <button type="submit">Eliminar selección</button>
   <span class="muted">Desaparece la lista; los jugadores siguen en Jugadores con todas sus observaciones.</span>
 </form>
+{% endif %}
 {% endblock %}

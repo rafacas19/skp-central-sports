@@ -17,11 +17,14 @@ from scouting_bot.profiles import (
 )
 
 WORKBOOK = Path(__file__).resolve().parent.parent / "feedback" / "Perfiles_Scout.xlsx"
+GK_WORKBOOK = WORKBOOK.with_name("Perfiles_Scout_Arquero.xlsx")
+OUTFIELD = [p for p in PROFILES if p.key != "arquero"]
 
 
 def test_six_profiles_with_the_clients_criterion_counts():
     counts = {p.name: len(p.criteria) for p in PROFILES}
     assert counts == {
+        "Arquero": 27,
         "Defensa Central": 24,
         "Lateral": 24,
         "Medio Centro": 22,
@@ -50,8 +53,8 @@ def test_section_titles_read_as_prose():
 def test_profiles_match_the_clients_workbook_row_for_row():
     openpyxl = pytest.importorskip("openpyxl")
     wb = openpyxl.load_workbook(WORKBOOK)
-    assert [ws.title for ws in wb.worksheets] == [p.name for p in PROFILES]
-    for ws, profile in zip(wb.worksheets, PROFILES):
+    assert [ws.title for ws in wb.worksheets] == [p.name for p in OUTFIELD]
+    for ws, profile in zip(wb.worksheets, OUTFIELD):
         rows = []
         build = []
         for code, name, desc in ws.iter_rows(min_row=5, max_col=3, values_only=True):
@@ -87,9 +90,41 @@ def test_default_profile_follows_the_position(position, key):
     assert default_profile(position).key == key
 
 
-@pytest.mark.parametrize("position", ["Portero", "arquero", "lateral", None, "", "utilero"])
-def test_no_profile_for_goalkeepers_or_vague_positions(position):
+@pytest.mark.parametrize("position", ["lateral", None, "", "utilero"])
+def test_no_profile_for_vague_positions(position):
     assert default_profile(position) is None
+
+
+@pytest.mark.parametrize("position", ["Portero", "arquero", "guardameta"])
+def test_goalkeepers_get_the_arquero_profile(position):
+    assert default_profile(position).key == "arquero"
+
+
+@pytest.mark.skipif(not GK_WORKBOOK.exists(), reason="client goalkeeper workbook not present locally")
+def test_arquero_matches_the_clients_sheet_with_the_agreed_fixes():
+    openpyxl = pytest.importorskip("openpyxl")
+    ws = openpyxl.load_workbook(GK_WORKBOOK).active
+    sheet = []
+    build = []
+    for r, (code, name, desc) in enumerate(ws.iter_rows(min_row=5, max_col=3, values_only=True), start=5):
+        if code and name:
+            sheet.append((r, str(code), name.strip(), " ".join((desc or "").split())))
+        elif name and not code:
+            build.append(name.strip())
+    fixes = {"Juego Aereo": "Juego Aéreo", "Control de area": "Control de área",
+             "Defensa de reamtes": "Defensa de remates"}
+    by_code = {}
+    for r, code, name, desc in sheet:
+        if r == 14:  # the duplicated "1.5 Despeje" copied from Defensa Central
+            assert (code, name) == ("1.5", "Despeje")
+            continue
+        by_code[code] = (fixes.get(name, name), desc)
+    by_code["5.1"] = (by_code["5.1"][0], by_code["4.1"][1])  # concentration text
+    by_code["4.1"] = (by_code["4.1"][0], "")                  # pending from the client
+    arquero = get_profile("arquero")
+    assert {c.code: (c.name, c.description) for c in arquero.criteria} == by_code
+    assert [len(s.criteria) for s in arquero.sections] == [8, 9, 3, 3, 4]
+    assert build == [arquero.build, arquero.height] == ["Atlético", "Alto"]
 
 
 def test_clean_scores_keeps_only_valid_whole_scores_of_the_profile():

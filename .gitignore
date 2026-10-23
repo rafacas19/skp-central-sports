@@ -15,3 +15,6 @@ docs/*.xlsx
 
 # Client feedback material (real player names/photos) — never committed.
 feedback/
+
+# Production data exports (real player data) — never committed.
+backups/

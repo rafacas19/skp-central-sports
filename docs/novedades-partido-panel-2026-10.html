@@ -8,7 +8,7 @@
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
-    color: #1a1a1a; line-height: 1.5; font-size: 11.5pt; margin: 0;
+    color: #1a1a1a; line-height: 1.45; font-size: 11.2pt; margin: 0;
   }
   header {
     border-bottom: 3px solid #1f7a3d; padding-bottom: 10px; margin-bottom: 18px;
@@ -50,7 +50,7 @@
     background: #f7f9f8; border: 1px solid #e0e6e2; border-left: 3px solid #9bbfab;
     border-radius: 4px; padding: 10px 14px; margin: 10px 0; color: #444; font-size: 10.5pt;
   }
-  footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #ddd; color: #888; font-size: 9pt; }
+  footer { margin-top: 10px; padding-top: 8px; border-top: 1px solid #ddd; color: #888; font-size: 9pt; }
   .avoid-break { break-inside: avoid; }
 </style>
 </head>
@@ -90,9 +90,9 @@ y puntuar a cada jugador con vuestro perfil por posición. Al final, un
 </ul>
 
 <h2>Puntuar por perfil <span class="tag tag-new">NUEVO</span></h2>
-<p>Cada jugador se puntúa con <strong>vuestra hoja «Perfiles Scout»</strong>: Defensa Central,
+<p>Cada jugador se puntúa con <strong>vuestra hoja «Perfiles Scout»</strong>: Arquero, Defensa Central,
 Lateral, Medio Centro, Interior, Extremo y Centro Delantero, con los mismos criterios y
-descripciones. El perfil se elige solo según la posición, y se puede cambiar.</p>
+descripciones, y para los porteros, vuestra hoja Arquero. El perfil se elige solo según la posición, y se puede cambiar.</p>
 <ul>
   <li><strong>Una sección cada vez:</strong> Técnica · Defensa · Ataque · Condición · Mental · Físico,
       con el avance de cada una (por ejemplo <em>3/5</em>).</li>
@@ -109,8 +109,8 @@ descripciones. El perfil se elige solo según la posición, y se puede cambiar.<
 Son las cifras de vuestro propio ejemplo.</p>
 </div>
 <div class="prev">
-  <strong>Porteros:</strong> por ahora tienen una valoración única de 1 a 5. En cuanto nos paséis la
-  hoja de perfil de portero, tendrán la suya.
+  <strong>Porteros:</strong> se puntúan con vuestra hoja <em>Arquero</em> (27 criterios). Si lo prefieres,
+  en <span class="ui">Perfil → Sin perfil</span> puedes darles una valoración única de 1 a 5.
 </div>
 
 <h2>Informe de perfil en PDF <span class="tag tag-new">NUEVO</span></h2>
@@ -123,6 +123,20 @@ con <strong>una columna por partido puntuado</strong>, la media de cada sección
   <li>Si editas el texto, <strong>nunca se sobrescribe solo</strong>. Si llegan evaluaciones nuevas,
       el informe te avisa y tú decides si lo regeneras.</li>
   <li><span class="ui">Descargar PDF</span>: una página, lista para compartir.</li>
+</ul>
+
+<h2>Durante y después del partido <span class="tag tag-new">NUEVO</span></h2>
+<ul>
+  <li><strong>Cambios:</strong> en el campo, <span class="ui">Cambio · equipo</span>. Eliges quién sale y quién entra
+      (un suplente o alguien que escribes en ese momento) y, si quieres, el minuto. El que entra lleva una
+      flecha verde ↑; el que sale pasa al banquillo con ↓. Si te equivocas, <span class="ui">Deshacer cambio</span>.</li>
+  <li><strong>Excel de las evaluaciones:</strong> en el partido, <span class="ui">Descargar Excel</span>. Es vuestra hoja
+      <em>Perfiles Scout</em> rellena: una pestaña por perfil, los criterios en filas y una columna por jugador.</li>
+  <li><strong>Editar o borrar un partido:</strong> en el partido, <span class="ui">Editar</span>. Un partido creado en el
+      panel también se puede borrar; los jugadores con nombre se quedan en <em>Jugadores</em>.</li>
+  <li><strong>Sin cobertura:</strong> si pierdes la señal mientras puntúas, lo que toques se queda en el móvil y se
+      envía solo cuando vuelve la conexión, aunque cierres la página.</li>
+  <li><strong>Resumen con IA:</strong> el resumen de la ficha del jugador usa ahora también sus puntuaciones.</li>
 </ul>
 
 <h2>Y de paso <span class="tag tag-chg">MEJORAS</span></h2>

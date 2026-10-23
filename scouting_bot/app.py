@@ -19,6 +19,8 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.exception_handlers import http_exception_handler
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from telegram import Update
 
 from .bot import build_application
@@ -69,6 +71,14 @@ async def lifespan(app: FastAPI):
     # 1. Database. In production Aerich owns the schema, but generate_schemas is
     #    idempotent (safe=True) and keeps local/first-boot simple.
     await init_db(generate_schemas=True)
+    # First dashboard admin from ADMIN_USERNAME + ADMIN_TEMP_PASSWORD (only if
+    # that user doesn't exist yet). A failure here must not take the bot down.
+    try:
+        from .dashboard.users import seed_admin_from_env
+
+        await seed_admin_from_env()
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not seed the dashboard admin")
 
     # 2. Telegram bot. Build handlers, then initialize+start the Application so
     #    its JobQueue (auto-nudge) runs in this loop.
@@ -133,6 +143,17 @@ app = FastAPI(
 # (/dashboard/static/* vs page routes).
 app.mount("/dashboard/static", dashboard_static, name="dashboard-static")
 app.include_router(dashboard_router)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _dashboard_http_errors(request: Request, exc: StarletteHTTPException):
+    """A refused dashboard action gets a page in Spanish, not a JSON error.
+    Everything else (redirects, the REST API) keeps FastAPI's default."""
+    if exc.status_code == 403 and request.url.path.startswith("/dashboard"):
+        from .dashboard.router import _render
+
+        return _render(request, "forbidden.html", {"message": exc.detail}, status_code=403)
+    return await http_exception_handler(request, exc)
 
 
 # ── Telegram webhook ─────────────────────────────────────────────────────

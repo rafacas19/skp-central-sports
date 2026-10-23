@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import httpx
 import pytest_asyncio
 
+from tests.conftest import make_user
+
 from scouting_bot import profiles
 from scouting_bot.config import settings
 from scouting_bot.dashboard import auth
@@ -33,7 +35,8 @@ async def client(storage):
     auth._attempts.clear()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        await c.post("/dashboard/login", data={"password": PASSWORD})
+        await make_user(password=PASSWORD)
+        await c.post("/dashboard/login", data={"username": "tester", "password": PASSWORD})
         yield c
     for f, v in old.items():
         _set(f, v)
@@ -196,9 +199,9 @@ async def test_adding_a_goalkeeper_profile_needs_only_the_profile_and_a_mapping(
     assert "PERFIL: PORTERO" in report.text and "Blocaje" in report.text
 
 
-def test_the_clients_sheet_has_no_goalkeeper_profile_yet():
-    assert "portero" not in {p.key for p in profiles.PROFILES}
-    assert profiles.default_profile("Portero") is None
+def test_goalkeepers_are_scored_on_the_clients_arquero_profile():
+    assert profiles.default_profile("Portero").name == "Arquero"
+    assert profiles.PROFILES[0].key == "arquero"  # pitch order: goalkeeper first
 
 
 # ── Feedback 26/10: photo on the profile, Transfermarkt, metres, contract month ──

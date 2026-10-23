@@ -8,7 +8,7 @@
     <h1>Informe de perfil</h1>
     <div class="chips">
       <a class="button-link primary" href="/dashboard/jugadores/{{ player.id }}/informe.pdf?perfil={{ profile.key }}">Descargar PDF</a>
-      <a class="button-link" href="/dashboard/jugadores/{{ player.id }}/informe/texto?perfil={{ profile.key }}">Editar texto</a>
+      {% if can_write %}<a class="button-link" href="/dashboard/jugadores/{{ player.id }}/informe/texto?perfil={{ profile.key }}">Editar texto</a>{% endif %}
     </div>
   </div>
 
@@ -28,7 +28,7 @@
   {% endif %}
   {% if text.refreshing %}
   <p class="muted">Hay evaluaciones nuevas — el texto se está actualizando; recarga en un momento.</p>
-  {% elif text.stale and text.edited %}
+  {% elif text.stale and text.edited and can_write %}
   <div class="callout warn">
     <p><strong>Hay evaluaciones nuevas.</strong> El texto lo editaste tú, así que no se ha tocado.</p>
     <form method="post" action="/dashboard/jugadores/{{ player.id }}/informe/generar">
@@ -38,7 +38,7 @@
     </form>
   </div>
   {% endif %}
-  {% if not text.exists %}
+  {% if not text.exists and can_write %}
   <form method="post" action="/dashboard/jugadores/{{ player.id }}/informe/generar" class="pr-generate">
     <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
     <input type="hidden" name="perfil" value="{{ profile.key }}">
