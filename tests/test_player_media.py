@@ -202,3 +202,85 @@ async def test_adding_a_goalkeeper_profile_needs_only_the_profile_and_a_mapping(
 def test_goalkeepers_are_scored_on_the_clients_arquero_profile():
     assert profiles.default_profile("Portero").name == "Arquero"
     assert profiles.PROFILES[0].key == "arquero"  # pitch order: goalkeeper first
+
+
+# ── Feedback 26/10: photo on the profile, Transfermarkt, metres, contract month ──
+async def test_the_profile_header_shows_the_photo_or_initials(client):
+    p = await _player()
+    page = await client.get(f"/dashboard/jugadores/{p.id}")
+    assert "profile-avatar" in page.text and "<span>CR</span>" in page.text
+    assert f'src="/dashboard/foto/{p.id}"' not in page.text
+    await _upload(client, p, JPEG)
+    page = await client.get(f"/dashboard/jugadores/{p.id}")
+    assert f'<img src="/dashboard/foto/{p.id}" alt="Foto de Camilo Restrepo">' in page.text
+    assert f'href="/dashboard/jugadores/{p.id}/editar#foto"' in page.text
+
+
+async def test_transfermarkt_link_is_saved_shown_and_on_the_report(client):
+    from scouting_bot.evaluations import save_evaluation
+
+    url = "https://www.transfermarkt.co/julian-beltran/profil/spieler/1415087"
+    p = await _player(position="Lateral izquierdo")
+    resp = await _edit(client, p, transfermarkt=url)
+    assert resp.status_code == 303
+    assert (await Prospect.get(id=p.id)).transfermarkt_url == url
+    page = await client.get(f"/dashboard/jugadores/{p.id}")
+    assert f'href="{url}" target="_blank"' in page.text and "Transfermarkt" in page.text
+    assert f'value="{url}"' in (await client.get(f"/dashboard/jugadores/{p.id}/editar")).text
+    match = await Session.create(agent_chat_id=1, home_team="Junior", away_team="Nacional",
+                                 match_date=datetime(2026, 9, 20, tzinfo=timezone.utc))
+    await save_evaluation(match, p, profile=profiles.get_profile("lateral"), raw_scores={"1.1": 4})
+    report = await client.get(f"/dashboard/jugadores/{p.id}/informe")
+    assert f'href="{url}">TRANSFERMARKT' in report.text
+
+
+async def test_transfermarkt_link_must_be_a_transfermarkt_page(client):
+    p = await _player()
+    resp = await _edit(client, p, transfermarkt="https://youtu.be/abc")
+    assert resp.status_code == 400 and "transfermarkt" in resp.text
+    assert (await Prospect.get(id=p.id)).transfermarkt_url is None
+    for ok in ("https://www.transfermarkt.es/x/profil/spieler/1", "https://transfermarkt.com/x"):
+        assert (await _edit(client, p, transfermarkt=ok)).status_code == 303
+
+
+async def test_height_is_typed_and_shown_in_metres(client):
+    p = await _player()
+    for typed in ("1,75", "1.75", "175", "1,75 m"):
+        assert (await _edit(client, p, estatura=typed)).status_code == 303, typed
+        assert (await Prospect.get(id=p.id)).height_cm == 175
+    page = await client.get(f"/dashboard/jugadores/{p.id}")
+    assert "1,75 m" in page.text and "175 cm" not in page.text
+    form = await client.get(f"/dashboard/jugadores/{p.id}/editar")
+    assert 'name="estatura" value="1,75"' in form.text
+    resp = await _edit(client, p, estatura="17,5")
+    assert resp.status_code == 400 and "1,75" in resp.text
+    assert (await Prospect.get(id=p.id)).height_cm == 175
+
+
+async def test_contract_takes_a_month_and_a_year(client):
+    p = await _player()
+    assert (await _edit(client, p, contrato_mes="6", contrato_hasta="2027")).status_code == 303
+    stored = await Prospect.get(id=p.id)
+    assert (stored.contract_month, stored.contract_year) == (6, 2027)
+    assert "06/2027" in (await client.get(f"/dashboard/jugadores/{p.id}")).text
+    form = await client.get(f"/dashboard/jugadores/{p.id}/editar")
+    assert '<option value="6" selected>Junio</option>' in form.text
+
+    assert (await _edit(client, p, contrato_hasta="2028")).status_code == 303  # year only
+    stored = await Prospect.get(id=p.id)
+    assert (stored.contract_month, stored.contract_year) == (None, 2028)
+    page = (await client.get(f"/dashboard/jugadores/{p.id}")).text
+    assert "Contrato hasta</span>2028" in page
+
+    resp = await _edit(client, p, contrato_mes="6")
+    assert resp.status_code == 400 and "Indica también el año" in resp.text
+
+
+def test_heights_parse_and_format():
+    from scouting_bot.measures import format_height, height_input, height_m, parse_height
+
+    assert parse_height("1,87") == (187, None) and parse_height("187cm") == (187, None)
+    assert parse_height("") == (None, None)
+    assert parse_height("2,6")[0] is None and parse_height("abc")[0] is None
+    assert (format_height(175), height_input(180), height_m(175)) == ("1,75 m", "1,80", 1.75)
+    assert format_height(None) == "" and height_m(None) is None

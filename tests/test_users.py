@@ -192,7 +192,7 @@ async def test_read_users_can_look_at_everything_and_change_nothing(client):
                 gets_blocked += 1
             else:
                 assert resp.status_code != 403, (method, path, resp.status_code)
-    assert posts == 26 + 4  # every data route plus the four user-management ones
+    assert posts == 27 + 4  # every data route plus the four user-management ones
     assert gets_blocked >= 10
     refused = await client.post("/dashboard/selecciones", data={"csrf": token, "nombre": "Colombia"})
     assert "No tienes permiso" in refused.text  # an HTML page, not JSON
@@ -245,6 +245,9 @@ async def test_read_users_see_no_write_controls(client, storage):
     assert 'value="4" checked' in sheet
     profile = (await client.get(f"/dashboard/jugadores/{player.id}")).text
     assert f"/dashboard/jugadores/{player.id}/editar" not in profile and "Informe de perfil" in profile
+    assert "/dashboard/jugadores/eliminar" not in profile
+    listing = (await client.get("/dashboard/jugadores")).text
+    assert 'name="ids"' not in listing and "Eliminar seleccionados" not in listing
 
 
 # ── 7. Reset, role change and disabling sign the user out ────────────────

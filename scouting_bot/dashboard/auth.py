@@ -174,7 +174,7 @@ _WRITE_PAGES = re.compile(
     r"^/dashboard/("
     r"partidos/nuevo"
     r"|partidos/\d+/(editar|borrar|sistema|alineacion|cambio)"
-    r"|jugadores/nuevo"
+    r"|jugadores/(nuevo|eliminar)"
     r"|jugadores/\d+/(editar|fusionar|informe/texto)"
     r")/?$"
 )

@@ -37,6 +37,7 @@ from telegram.ext import (
 from .ai import get_provider
 from .config import settings
 from .evaluations import MergeConflict
+from .measures import parse_height
 from .models import HOME, Session
 from .report import (
     build_historical_workbook,
@@ -1010,7 +1011,12 @@ def _parse_edit(body: str) -> tuple[str, dict]:
         value = value.strip()
         if attr is None or attr == "_number_ignored" or not value:
             continue
-        if attr in ("age", "height_cm"):
+        if attr == "height_cm":
+            cm, _ = parse_height(value)  # altura=175 and altura=1,75 alike
+            if cm is None:
+                continue
+            fields[attr] = cm
+        elif attr == "age":
             try:
                 fields[attr] = int(value)
             except ValueError:

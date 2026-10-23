@@ -60,6 +60,9 @@
       </div>
       {% endfor %}
     </div>
-    {% if player.video_url %}<p class="pr-video"><a href="{{ player.video_url }}">VIDEO</a></p>{% endif %}
+    {% if player.video_url or player.transfermarkt_url %}<p class="pr-video">
+      {% if player.video_url %}<a href="{{ player.video_url }}">VIDEO</a>{% endif %}
+      {% if player.transfermarkt_url %}<a href="{{ player.transfermarkt_url }}">TRANSFERMARKT</a>{% endif %}
+    </p>{% endif %}
   </section>
 </article>

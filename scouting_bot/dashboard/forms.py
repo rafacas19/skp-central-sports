@@ -15,6 +15,7 @@ import re
 from datetime import date
 
 from ..categories import split_category
+from ..measures import parse_height
 from ..models import CONTACT_NONE, CONTACT_STATUSES, FEET, RATING_DECISIONS
 from ..positions import ROLES
 from ..taxonomy import normalize_identity, normalize_name
@@ -36,7 +37,6 @@ INT_FIELDS: dict[str, tuple[str, int, int, str]] = {
     "dorsal": ("shirt_number", 1, 99, "El dorsal"),
     "anio_nacimiento": ("birth_year", 1950, date.today().year, "El año de nacimiento"),
     "edad": ("age", 10, 60, "La edad"),
-    "estatura": ("height_cm", 100, 250, "La estatura en cm"),
     "peso": ("weight_kg", 30, 150, "El peso en kg"),
     "valor": ("market_value_usd", 0, 999_000_000, "El valor de mercado"),
     "contrato_hasta": ("contract_year", 2000, date.today().year + 20, "El año de contrato"),
@@ -44,6 +44,12 @@ INT_FIELDS: dict[str, tuple[str, int, int, str]] = {
 
 ROLE_NAMES = tuple(p.role for p in ROLES)
 _URL_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
+# Any of Transfermarkt's country sites: transfermarkt.co, .es, .com, .co.uk…
+_TRANSFERMARKT_RE = re.compile(
+    r"^https?://(www\.)?transfermarkt\.[a-z.]{2,10}(/\S*)?$", re.IGNORECASE
+)
+MONTHS = ("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+          "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
 DECISION_LABELS = tuple(RATING_DECISIONS[r] for r in (5, 4, 3, 2, 1))
 # Ratings the form offers: whole and half steps across the 1–5 scale.
 RATING_CHOICES = ("1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5")
@@ -91,6 +97,20 @@ def parse_player_form(
     else:
         updates["video_url"] = video or None
 
+    # The player's Transfermarkt page, linked from the profile and the report.
+    transfermarkt = (form.get("transfermarkt") or "").strip()
+    if len(transfermarkt) > 500:
+        errors["transfermarkt"] = "Máximo 500 caracteres."
+    elif transfermarkt and not _TRANSFERMARKT_RE.match(transfermarkt):
+        errors["transfermarkt"] = "Pega el enlace del perfil en transfermarkt (https://www.transfermarkt.co/…)."
+    else:
+        updates["transfermarkt_url"] = transfermarkt or None
+
+    # Typed in metres (1,75), stored in centimetres; see measures.
+    updates["height_cm"], height_error = parse_height(form.get("estatura"))
+    if height_error:
+        errors["estatura"] = height_error
+
     for form_name, (field, low, high, label) in INT_FIELDS.items():
         raw = (form.get(form_name) or "").strip()
         if not raw:
@@ -106,6 +126,18 @@ def parse_player_form(
             errors[form_name] = f"{label} debe estar entre {low} y {high}."
             continue
         updates[field] = number
+
+    # "Contrato hasta" is a month and a year; the month is optional (older
+    # profiles only ever had the year), but a month alone means nothing.
+    month = (form.get("contrato_mes") or "").strip()
+    if not month:
+        updates["contract_month"] = None
+    elif month.isdigit() and 1 <= int(month) <= 12:
+        updates["contract_month"] = int(month)
+        if updates.get("contract_year") is None and "contrato_hasta" not in errors:
+            errors["contrato_hasta"] = "Indica también el año."
+    else:
+        errors["contrato_mes"] = "Elige un mes de la lista."
 
     # Position: a canonical role, or the scout's existing free text left as-is
     # (the form offers it as an option so opening and saving never rewrites it).

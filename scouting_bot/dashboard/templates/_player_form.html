@@ -62,8 +62,8 @@
         <input type="text" name="nacionalidad" value="{{ values.nacionalidad }}" maxlength="60">
         {{ field_error(errors, "nacionalidad") }}
       </label>
-      <label>Estatura (cm)
-        <input type="number" name="estatura" value="{{ values.estatura }}" min="100" max="250">
+      <label>Estatura (m)
+        <input type="text" name="estatura" value="{{ values.estatura }}" inputmode="decimal" placeholder="1,75" maxlength="6">
         {{ field_error(errors, "estatura") }}
       </label>
       <label>Peso (kg)
@@ -84,10 +84,20 @@
         <input type="text" name="valor" value="{{ values.valor }}" inputmode="numeric" placeholder="250000">
         {{ field_error(errors, "valor") }}
       </label>
-      <label>Contrato hasta
-        <input type="number" name="contrato_hasta" value="{{ values.contrato_hasta }}" min="2000" max="2050">
+      <div class="field-pair" role="group" aria-label="Contrato hasta">
+        <span class="field-pair-label">Contrato hasta</span>
+        <div class="field-pair-inputs">
+          <select name="contrato_mes" aria-label="Mes de fin de contrato">
+            <option value="">Mes</option>
+            {% for m in months %}
+            <option value="{{ loop.index }}" {% if values.contrato_mes == loop.index|string %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+          <input type="number" name="contrato_hasta" value="{{ values.contrato_hasta }}" min="2000" max="2050" placeholder="Año" aria-label="Año de fin de contrato">
+        </div>
+        {{ field_error(errors, "contrato_mes") }}
         {{ field_error(errors, "contrato_hasta") }}
-      </label>
+      </div>
       <label>Agente
         <input type="text" name="agente" value="{{ values.agente }}" maxlength="120">
         {{ field_error(errors, "agente") }}
@@ -99,6 +109,10 @@
       <label>Video (enlace)
         <input type="url" name="video" value="{{ values.video }}" maxlength="500" placeholder="https://…">
         {{ field_error(errors, "video") }}
+      </label>
+      <label>Transfermarkt (enlace)
+        <input type="url" name="transfermarkt" value="{{ values.transfermarkt }}" maxlength="500" placeholder="https://www.transfermarkt.co/…">
+        {{ field_error(errors, "transfermarkt") }}
       </label>
     </div>
   </fieldset>

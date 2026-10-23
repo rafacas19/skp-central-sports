@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Eliminar jugadores — Panel de Scouting{% endblock %}
+{% block content %}
+<p><a class="back" href="{{ back }}">← Volver</a></p>
+{% if players %}
+{% set n = players | length %}
+<h1>Eliminar {{ "jugador" if n == 1 else n ~ " jugadores" }}</h1>
+
+<p>Se borra {{ "el perfil" if n == 1 else "cada perfil" }} con todo lo registrado:
+valoraciones, evaluaciones por perfil, observaciones de los partidos, informes,
+foto y convocatorias. Las observaciones también desaparecen del informe de cada
+partido. <strong>No se puede deshacer.</strong></p>
+
+<form method="post" action="/dashboard/jugadores/eliminar" class="form">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <div class="callout warn">
+    <ul class="delete-list">
+      {% for p in players %}
+      <li>
+        <input type="hidden" name="ids" value="{{ p.id }}">
+        <strong>{{ p.name }}</strong>
+        <span class="muted">
+          {{ p.team or "sin equipo" }}
+          · {{ p.matches }} partido{{ "s" if p.matches != 1 }}
+          · {{ p.evaluations }} evaluaci{{ "ones" if p.evaluations != 1 else "ón" }}
+          · {{ p.observations }} {{ "observaciones" if p.observations != 1 else "observación" }}
+          {% if p.squads %} · {{ p.squads }} convocatoria{{ "s" if p.squads != 1 }}{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="primary danger">Sí, eliminar{{ " " ~ n ~ " jugadores" if n > 1 }}</button>
+    <a class="button-link" href="{{ back }}">Cancelar</a>
+  </div>
+</form>
+{% else %}
+<h1>Eliminar jugadores</h1>
+<p class="muted">No has seleccionado ningún jugador. Marca los que quieras eliminar en la lista.</p>
+{% endif %}
+{% endblock %}

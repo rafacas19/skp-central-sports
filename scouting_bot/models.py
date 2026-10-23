@@ -128,6 +128,10 @@ class Session(Model):
     # Lineup formation per side ("4-3-3"), set from the dashboard lineup editor.
     home_formation = fields.CharField(max_length=8, null=True)
     away_formation = fields.CharField(max_length=8, null=True)
+    # Shirt colour per side ("#c8102e"), chosen on the formation step; NULL
+    # keeps the pitch's default kit (see kits).
+    home_color = fields.CharField(max_length=7, null=True)
+    away_color = fields.CharField(max_length=7, null=True)
     # Optional match metadata (parsed from `/nuevo … | campo=valor`).
     scout_name = fields.TextField(null=True)
     competition = fields.TextField(null=True)
@@ -203,6 +207,7 @@ class Prospect(Model):
     agent_phone = fields.TextField(null=True)
     market_value_usd = fields.IntField(null=True)  # scout's estimate, whole USD
     contract_year = fields.IntField(null=True)  # contrato hasta
+    contract_month = fields.IntField(null=True)  # 1–12, optional with the year
     latest_rating = fields.FloatField(null=True)  # manual, 1–5 (decimals allowed)
     decision_status = fields.CharField(max_length=24, null=True)  # DECISION_STATUSES
     # Contact follow-up. `contact_status` is one of CONTACT_STATUSES (NULL ⇒ never
@@ -215,6 +220,7 @@ class Prospect(Model):
     is_temporary = fields.BooleanField(default=False)
     photo_file_id = fields.TextField(null=True)  # Telegram file_id (MVP storage)
     video_url = fields.TextField(null=True)  # highlights link (YouTube, Drive…)
+    transfermarkt_url = fields.TextField(null=True)  # the player's Transfermarkt page
     notes = fields.TextField(null=True)
     # Cached dashboard AI summary. The obs-count watermark marks which state it
     # was generated from; when it drifts, the dashboard refreshes in the

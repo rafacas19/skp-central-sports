@@ -21,8 +21,9 @@ from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..categories import split_category
-from ..evaluations import MergeConflict, match_when
+from ..evaluations import MergeConflict, match_when, move_match, rederive_headline
 from ..formations import BENCH_ROWS, FORMATIONS, get_formation, pitch_point
+from ..kits import DEFAULT_COLORS, clean_color, kit_style, too_similar
 from ..models import (
     AWAY,
     HOME,
@@ -34,11 +35,12 @@ from ..models import (
     Observation,
     Prospect,
     Session,
+    SquadMember,
     decision_for_rating,
 )
 from ..positions import position_abbr
 from ..storage import Storage
-from ..taxonomy import normalize_name
+from ..taxonomy import normalize_identity, normalize_name
 from . import auth, queries
 from .router import _render
 
@@ -348,7 +350,9 @@ async def formation_page(request: Request, session_id: int, nuevo: str | None = 
         return _missing(request)
     sides = [
         {"side": side, "team": _team(session, side),
-         "cards": formation_cards(getattr(session, f"{side}_formation"))}
+         "cards": formation_cards(getattr(session, f"{side}_formation")),
+         "color": getattr(session, f"{side}_color") or DEFAULT_COLORS[side],
+         "kit": kit_style(getattr(session, f"{side}_color"))}
         for side in SIDES
     ]
     return _render(
@@ -356,6 +360,7 @@ async def formation_page(request: Request, session_id: int, nuevo: str | None = 
         {
             "match": {"id": session.id, "home_team": session.home_team, "away_team": session.away_team},
             "sides": sides,
+            "clash": too_similar(sides[0]["color"], sides[1]["color"]),
             "new": bool(nuevo),
             "has_lineup": await MatchPlayer.filter(session_id=session_id).exists(),
         },
@@ -371,9 +376,15 @@ async def formation_submit(request: Request, session_id: int):
     session = await Session.get_or_none(id=session_id)
     if session is None:
         return _missing(request)
-    await Session.filter(id=session_id).update(
-        **{f"{side}_formation": get_formation(form.get(f"{side}-f"))[0] for side in SIDES}
-    )
+    updates = {f"{side}_formation": get_formation(form.get(f"{side}-f"))[0] for side in SIDES}
+    for side in SIDES:
+        color = clean_color(form.get(f"{side}-c"))
+        if color is not None:
+            # The untouched default is not a choice: storing it would freeze
+            # today's kit into the match.
+            updates[f"{side}_color"] = None if color == DEFAULT_COLORS[side] and \
+                getattr(session, f"{side}_color") is None else color
+    await Session.filter(id=session_id).update(**updates)
     target = (f"/dashboard/partidos/{session_id}/alineacion?nuevo=1" if form.get("nuevo")
               else f"/dashboard/partidos/{session_id}/campo")
     return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
@@ -404,14 +415,16 @@ async def lineup_context(session: Session) -> dict:
                     "role": slot.role,
                     "number": r.shirt_number if r and r.shirt_number is not None else "",
                     "name": r.prospect.name if r else "",
+                    "id": r.prospect_id if r else "",
                 }
             )
         bench_rows = [r for r in mine if r.slot is None]
         bench = [
-            {"number": r.shirt_number if r.shirt_number is not None else "", "name": r.prospect.name}
+            {"number": r.shirt_number if r.shirt_number is not None else "",
+             "name": r.prospect.name, "id": r.prospect_id}
             for r in bench_rows
         ]
-        bench += [{"number": "", "name": ""}] * max(3, BENCH_ROWS - len(bench))
+        bench += [{"number": "", "name": "", "id": ""}] * max(3, BENCH_ROWS - len(bench))
         sides.append(
             {
                 "side": side,
@@ -473,8 +486,73 @@ async def name_player(prospect: Prospect, name: str) -> Prospect:
     return prospect
 
 
+async def _known_elsewhere(prospect: Prospect, session: Session) -> bool:
+    """Whether the player is somebody beyond this match: on file before it,
+    seen in another match, or called up to a squad."""
+    if prospect.created_at < session.created_at:
+        return True
+    for model in (MatchPlayer, Evaluation, Observation):
+        if await model.filter(prospect_id=prospect.id).exclude(session_id=session.id).exists():
+            return True
+    return await SquadMember.filter(prospect_id=prospect.id).exists()
+
+
+async def _rename(session: Session, prospect: Prospect, name: str, norm: str) -> None:
+    prospect.name, prospect.normalized_name, prospect.is_temporary = name, norm, False
+    await prospect.save()
+    await Observation.filter(session_id=session.id, prospect_id=prospect.id).update(
+        player_name=name
+    )
+
+
+async def _correct_name(
+    storage: Storage, session: Session, held: Prospect, name: str,
+    number: int | None, role: str | None, side: str,
+) -> Prospect:
+    """The scout retyped the name of a named player on his row.
+
+    The same person spelled differently is renamed. A player who exists only in
+    this match was mistyped: he is renamed — or merged, when the name belongs
+    to a player already on file at the club. A player with a life beyond this
+    match was the wrong pick: he is left alone, and this match's sheet and
+    notes go to the one now named on the row. Either way the score stays on
+    the spot it was given on."""
+    norm = normalize_identity(name)
+    if norm == held.normalized_name:
+        if name != held.name:
+            await _rename(session, held, name, norm)
+        return held
+    if not await _known_elsewhere(held, session):
+        existing = await queries.identity_taken(
+            held.agent_chat_id, norm, held.normalized_team or "", exclude_id=held.id
+        )
+        if existing is None:
+            await _rename(session, held, name, norm)
+            return held
+        try:
+            await storage.merge_prospects(existing.id, held.id)
+        except MergeConflict:
+            # Both were scored in this match: the score on this row wins.
+            await move_match(session, held, existing)
+            await storage.merge_prospects(existing.id, held.id)
+        # The notes keep the typo they were taken under, and the exports read
+        # it before the profile; the headline follows his newest rated match.
+        await Observation.filter(session_id=session.id, prospect_id=existing.id).update(
+            player_name=existing.name
+        )
+        await rederive_headline(existing)
+        return await Prospect.get(id=existing.id)
+    target = await _resolve(storage, session, _team(session, side), name, number, role)
+    await move_match(session, held, target)
+    return target
+
+
 async def save_lineup(session: Session, form: dict[str, str]) -> None:
     """Replace both lineups with what the form holds. Every field is optional.
+
+    Each row posts the id of the player it showed, so editing a row edits *that*
+    player: a new dorsal is just his number in this match, and a retyped name
+    is a correction (see `_correct_name`) — his score is never left behind.
 
     A row with neither a name nor a number is an empty position — unless an
     unidentified player already stands there (one the scout tapped on the
@@ -483,6 +561,7 @@ async def save_lineup(session: Session, form: dict[str, str]) -> None:
     player entered twice (two rows, or both sides) keeps his first place only."""
     storage = Storage()
     before = await MatchPlayer.filter(session_id=session.id).prefetch_related("prospect")
+    by_id = {(r.side, r.prospect_id): r.prospect for r in before}
     by_slot = {(r.side, r.slot): r.prospect for r in before if r.slot is not None}
     by_number = {(r.side, r.shirt_number): r.prospect for r in before if r.shirt_number is not None}
     # Substitution history survives a lineup edit: it belongs to the player.
@@ -492,7 +571,11 @@ async def save_lineup(session: Session, form: dict[str, str]) -> None:
         for r in before
     }
 
-    entries: list[tuple[str, int | None, str, int | None, str | None]] = []
+    def row_player(side: str, key: str) -> Prospect | None:
+        raw = (form.get(key) or "").strip()
+        return by_id.get((side, int(raw))) if raw.isdigit() else None
+
+    entries: list[tuple[str, int | None, str, int | None, str | None, Prospect | None]] = []
     formations = {}
     for side in SIDES:
         # The formation is chosen on its own step; a posted one still wins.
@@ -503,24 +586,31 @@ async def save_lineup(session: Session, form: dict[str, str]) -> None:
         for i, slot in enumerate(slots):
             name = (form.get(f"{side}-s{i}-p") or "").strip()[:_MAX_TEXT]
             number = _number(form.get(f"{side}-s{i}-n"))
-            held = by_slot.get((side, i))
+            row = row_player(side, f"{side}-s{i}-id")
+            held = row or by_slot.get((side, i))
             if name or number is not None or (held is not None and is_unnamed(held)):
-                entries.append((side, i, name, number, slot.role))
+                entries.append((side, i, name, number, slot.role, row))
         j = 0
         while f"{side}-b{j}-p" in form or f"{side}-b{j}-n" in form:
             name = (form.get(f"{side}-b{j}-p") or "").strip()[:_MAX_TEXT]
             number = _number(form.get(f"{side}-b{j}-n"))
             if name or number is not None:
-                entries.append((side, None, name, number, None))
+                entries.append((side, None, name, number, None, row_player(side, f"{side}-b{j}-id")))
             j += 1
 
     await Session.filter(id=session.id).update(**formations)
     await MatchPlayer.filter(session_id=session.id).delete()
     placed: set[int] = set()
-    for side, slot, name, number, role in entries:
-        held = by_slot.get((side, slot)) if slot is not None else None
+    # A correction can turn a row's player into another record (renamed into an
+    # existing one, or the match handed to the right player): his substitution
+    # history goes with the row, and whoever came on for him follows the new id.
+    became: dict[int, int] = {}
+    for side, slot, name, number, role, row in entries:
+        held = row
+        if held is None and slot is not None:
+            held = by_slot.get((side, slot))
         if held is None or not is_unnamed(held):
-            held = by_number.get((side, number)) if number is not None else None
+            held = row or (by_number.get((side, number)) if number is not None else None)
         if held is not None and is_unnamed(held):
             prospect = held
             if name:
@@ -531,14 +621,30 @@ async def save_lineup(session: Session, form: dict[str, str]) -> None:
             if number is not None and (prospect.shirt_number is None or is_unnamed(prospect)):
                 prospect.shirt_number = number
                 await prospect.save()
+        elif row is not None and held is row and name:
+            prospect = await _correct_name(storage, session, held, name, number, role, side)
         else:
             prospect = await _resolve(storage, session, _team(session, side), name, number, role)
+        origin = row or held
+        if origin is not None and origin.id != prospect.id:
+            became[origin.id] = prospect.id
         if prospect.id in placed:
             continue
         placed.add(prospect.id)
+        flags = sub_flags.get(prospect.id) or (sub_flags.get(origin.id) if origin else None) or {}
         await MatchPlayer.create(
             session_id=session.id, prospect_id=prospect.id, side=side,
-            slot=slot, shirt_number=number, **sub_flags.get(prospect.id, {}),
+            slot=slot, shirt_number=number, **flags,
+        )
+        if number is not None:
+            # The lineup is this match's word on the dorsal; the exports read it
+            # off the notes, so a corrected one must reach them too.
+            await Observation.filter(
+                session_id=session.id, prospect_id=prospect.id, is_substitution=False
+            ).update(player_number=number)
+    for old_id, new_id in became.items():
+        await MatchPlayer.filter(session_id=session.id, came_on_for_id=old_id).update(
+            came_on_for_id=new_id
         )
 
 
@@ -649,6 +755,7 @@ async def pitch_context(session: Session) -> dict:
             "is_web": session.origin == ORIGIN_WEB,
         },
         "tokens": tokens,
+        "kits": {side: kit_style(getattr(session, f"{side}_color")) for side in SIDES},
         "benches": [
             {"side": HOME, "team": session.home_team, "players": benches[HOME]},
             {"side": AWAY, "team": session.away_team, "players": benches[AWAY]},

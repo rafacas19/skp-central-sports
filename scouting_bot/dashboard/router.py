@@ -20,6 +20,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Request,
     Response,
     UploadFile,
@@ -42,6 +43,7 @@ from ..models import (
     Squad,
     SquadMember,
 )
+from ..measures import format_height, height_input
 from ..positions import ROLES
 from ..report import build_squad_workbook
 from ..storage import Storage
@@ -113,6 +115,13 @@ def _valor(value: int | None) -> str:
     return f"${value}"
 
 
+def _contrato(year: int | None, month: int | None = None) -> str:
+    """«06/2027», or just «2027» for a contract recorded by year only."""
+    if year is None:
+        return "—"
+    return f"{month:02d}/{year}" if month else str(year)
+
+
 # Cache-busting stamp for /dashboard/static URLs: a deploy restarts the
 # process, so browsers fetch the new stylesheet instead of a cached one.
 templates.env.globals["asset_v"] = str(int(time.time()))
@@ -122,6 +131,9 @@ templates.env.filters["hora"] = _hora
 templates.env.filters["valoracion"] = _valoracion
 templates.env.filters["minuto"] = _minuto
 templates.env.filters["valor"] = _valor
+templates.env.filters["estatura"] = format_height
+templates.env.filters["contrato"] = _contrato
+templates.env.globals["months"] = forms.MONTHS
 
 
 ADMIN_NAV = ("Usuarios", "/dashboard/usuarios")
@@ -311,6 +323,7 @@ async def players_page(
     nacionalidad: str | None = None,
     contacto: str | None = None,
     orden: str | None = None,
+    eliminados: int | None = None,
 ):
     try:
         rating_min = float(valoracion_min) if valoracion_min else None
@@ -342,7 +355,9 @@ async def players_page(
     }
     # `orden` alone is a sort, not a filter — it must not light up "quitar filtros".
     filters["any"] = any(v for k, v in filters.items() if k != "orden")
-    return _render(request, "players.html", {**data, "filters": filters})
+    return _render(
+        request, "players.html", {**data, "filters": filters, "deleted": eliminados}
+    )
 
 
 # ── Creating a player from scratch ───────────────────────────────────────
@@ -351,7 +366,8 @@ async def players_page(
 _NEW_PLAYER_FIELDS = (
     "nombre", "equipo", "posicion", "dorsal", "anio_nacimiento", "edad",
     "estatura", "peso", "pie", "nacionalidad", "procedencia", "valor",
-    "contrato_hasta", "agente", "telefono_agente", "video", "valoracion", "decision",
+    "contrato_mes", "contrato_hasta", "agente", "telefono_agente", "video", "transfermarkt",
+    "valoracion", "decision",
     "notas", "estado_contacto", "fecha_contacto", "notas_contacto",
 )
 
@@ -440,6 +456,35 @@ async def decisions_page(
     }
     filters["any"] = any(filters.values())
     return _render(request, "decisions.html", {**data, "filters": filters})
+
+
+# ── Deleting players ─────────────────────────────────────────────────────
+# Declared before /jugadores/{prospect_id} for the same reason as "nuevo".
+def _ids(raw: list[str]) -> list[int]:
+    return sorted({int(v) for v in raw if v.strip().isdigit()})
+
+
+@router.get(
+    "/jugadores/eliminar",
+    response_class=HTMLResponse,
+    dependencies=[Depends(auth.require_dashboard)],
+)
+async def players_delete_page(request: Request, ids: list[str] = Query(default=[])):
+    """Confirm before deleting: one player from his profile, or the ones ticked
+    in the list. Looking at this page deletes nothing."""
+    players = await queries.delete_preview(_ids(ids))
+    back = f"/dashboard/jugadores/{players[0]['id']}" if len(players) == 1 else "/dashboard/jugadores"
+    return _render(request, "player_delete.html", {"players": players, "back": back})
+
+
+@router.post("/jugadores/eliminar", dependencies=[Depends(auth.require_dashboard)])
+async def players_delete(request: Request):
+    form = await request.form()
+    auth.require_csrf(str(form.get(auth.CSRF_FIELD) or ""))
+    deleted = await Storage().delete_prospects(_ids([str(v) for v in form.getlist("ids")]))
+    return RedirectResponse(
+        f"/dashboard/jugadores?eliminados={deleted}", status_code=status.HTTP_303_SEE_OTHER
+    )
 
 
 @router.get(
@@ -564,16 +609,18 @@ def _form_values(p: Prospect) -> dict[str, str]:
         "dorsal": s(p.shirt_number),
         "anio_nacimiento": s(p.birth_year),
         "edad": s(p.age),
-        "estatura": s(p.height_cm),
+        "estatura": height_input(p.height_cm),
         "peso": s(p.weight_kg),
         "pie": p.preferred_foot or "",
         "nacionalidad": p.nationality or "",
         "procedencia": p.origin_club or "",
         "valor": s(p.market_value_usd),
+        "contrato_mes": s(p.contract_month),
         "contrato_hasta": s(p.contract_year),
         "agente": p.agent_name or "",
         "telefono_agente": p.agent_phone or "",
         "video": p.video_url or "",
+        "transfermarkt": p.transfermarkt_url or "",
         "valoracion": f"{p.latest_rating:g}" if p.latest_rating is not None else "",
         "decision": p.decision_status or "",
         "notas": p.notes or "",

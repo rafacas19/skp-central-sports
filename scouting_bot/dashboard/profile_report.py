@@ -210,6 +210,7 @@ async def report_context(
             "has_photo": bool(prospect.photo_file_id)
             or await ProspectPhoto.filter(prospect_id=prospect.id).exists(),
             "video_url": prospect.video_url,
+            "transfermarkt_url": prospect.transfermarkt_url,
         },
         "profile": {"key": profile.key, "name": profile.name},
         "profiles": [{"key": k, "name": get_profile(k).name} for k in keys],
