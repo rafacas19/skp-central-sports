@@ -10,7 +10,7 @@
   <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
   {% if new %}<input type="hidden" name="nuevo" value="1">{% endif %}
   {% for s in sides %}
-  <fieldset class="formation-side">
+  <fieldset class="formation-side formation-{{ s.side }}"{% if s.kit %} style="{{ s.kit }}"{% endif %}>
     <legend>{{ s.team }}</legend>
     <div class="formation-cards">
       {% for c in s.cards %}
@@ -23,10 +23,15 @@
       </label>
       {% endfor %}
     </div>
+    <label class="kit-picker">Color de camiseta
+      <input type="color" name="{{ s.side }}-c" value="{{ s.color }}">
+    </label>
   </fieldset>
   {% endfor %}
+  {% if clash %}<p class="callout warn">Los dos equipos tienen colores muy parecidos: en el campo costará distinguirlos.</p>{% endif %}
   <div class="sheet-actions">
     <button type="submit" class="button primary">{{ "Continuar" if new else "Guardar sistema" }}</button>
   </div>
 </form>
+<script src="/dashboard/static/kits.js?v={{ asset_v }}" defer></script>
 {% endblock %}

@@ -50,8 +50,10 @@ MERGEABLE_BIO_FIELDS = (
     "agent_phone",
     "market_value_usd",
     "contract_year",
+    "contract_month",
     "photo_file_id",
     "video_url",
+    "transfermarkt_url",
     "notes",
     "latest_rating",
     "decision_status",
@@ -300,6 +302,9 @@ class Storage:
                 for f in MERGEABLE_BIO_FIELDS
                 if getattr(keep, f) is None and getattr(drop, f) is not None
             }
+            # A contract month only means something with its own year.
+            if "contract_month" in backfill and (keep.contract_year or drop.contract_year) != drop.contract_year:
+                del backfill["contract_month"]
             if backfill:
                 await Prospect.filter(id=keep_id).update(**backfill)
         # Squad call-ups follow the survivor. A membership for a squad he is
@@ -342,6 +347,17 @@ class Storage:
                 )
         await Observation.filter(prospect_id=drop_id).update(prospect_id=keep_id)
         await Prospect.filter(id=drop_id).delete()
+
+    async def delete_prospects(self, ids: list[int]) -> int:
+        """Delete players and everything recorded about them, match notes included.
+
+        Sheets, lineup places, call-ups, report texts and the uploaded photo go
+        through the FK cascade; observations would only be unlinked by it, so
+        they are deleted first. Returns how many players were deleted."""
+        if not ids:
+            return 0
+        await Observation.filter(prospect_id__in=ids).delete()
+        return await Prospect.filter(id__in=ids).delete()
 
     async def prospects_in_session(self, session_id: int) -> list[Prospect]:
         """Distinct named (non-temporary) prospects referenced by this session's

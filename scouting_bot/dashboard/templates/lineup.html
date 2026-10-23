@@ -24,7 +24,7 @@
         {% for row in s.starters %}
         <tr>
           <td class="muted">{{ row.role }}</td>
-          <td><input name="{{ s.side }}-s{{ row.index }}-n" value="{{ row.number }}" inputmode="numeric" pattern="[0-9]*" maxlength="3" aria-label="Dorsal {{ row.role }}"></td>
+          <td><input type="hidden" name="{{ s.side }}-s{{ row.index }}-id" value="{{ row.id }}"><input name="{{ s.side }}-s{{ row.index }}-n" value="{{ row.number }}" inputmode="numeric" pattern="[0-9]*" maxlength="3" aria-label="Dorsal {{ row.role }}"></td>
           <td><input name="{{ s.side }}-s{{ row.index }}-p" value="{{ row.name }}" list="known-{{ s.side }}" autocomplete="off" aria-label="Nombre {{ row.role }}"></td>
         </tr>
         {% endfor %}
@@ -32,7 +32,7 @@
         {% for j, row in s.bench %}
         <tr>
           <td class="muted">Suplente</td>
-          <td><input name="{{ s.side }}-b{{ j }}-n" value="{{ row.number }}" inputmode="numeric" pattern="[0-9]*" maxlength="3" aria-label="Dorsal suplente"></td>
+          <td><input type="hidden" name="{{ s.side }}-b{{ j }}-id" value="{{ row.id }}"><input name="{{ s.side }}-b{{ j }}-n" value="{{ row.number }}" inputmode="numeric" pattern="[0-9]*" maxlength="3" aria-label="Dorsal suplente"></td>
           <td><input name="{{ s.side }}-b{{ j }}-p" value="{{ row.name }}" list="known-{{ s.side }}" autocomplete="off" aria-label="Nombre suplente"></td>
         </tr>
         {% endfor %}

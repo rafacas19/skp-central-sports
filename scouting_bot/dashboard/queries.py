@@ -600,8 +600,10 @@ async def player_detail(prospect_id: int) -> dict | None:
             "agent_name": p.agent_name,
             "agent_phone": p.agent_phone,
             "video_url": p.video_url,
+            "transfermarkt_url": p.transfermarkt_url,
             "market_value_usd": p.market_value_usd,
             "contract_year": p.contract_year,
+            "contract_month": p.contract_month,
             "rating": p.latest_rating,
             "decision": prospect_decision(p),
             "notes": p.notes,
@@ -610,6 +612,9 @@ async def player_detail(prospect_id: int) -> dict | None:
             "contact_notes": p.contact_notes,
             "matches": len(matches),
             "observations": len(obs),
+            "initials": _initials(p),
+            "has_photo": bool(p.photo_file_id)
+            or await ProspectPhoto.filter(prospect_id=p.id).exists(),
         },
         "matches": matches,
         "rating_history": history,
@@ -673,6 +678,23 @@ async def scout_chat_id() -> int:
         return session.agent_chat_id
     prospect = await Prospect.all().order_by("-id").first()
     return prospect.agent_chat_id if prospect is not None else 0
+
+
+async def delete_preview(ids: list[int]) -> list[dict]:
+    """The players about to be deleted, with what goes with each of them."""
+    prospects = await Prospect.filter(id__in=ids).prefetch_related(
+        "observations", "evaluations", "squad_memberships", "lineups"
+    )
+    rows = []
+    for p in sorted(prospects, key=lambda p: normalize_name(display_name(p))):
+        row = _player_row(p)
+        row["matches"] = len(
+            {o.session_id for o in p.observations} | {m.session_id for m in p.lineups}
+        )
+        row["evaluations"] = len(p.evaluations)
+        row["squads"] = len(p.squad_memberships)
+        rows.append(row)
+    return rows
 
 
 async def get_prospect(prospect_id: int) -> Prospect | None:

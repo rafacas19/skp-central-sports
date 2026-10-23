@@ -273,3 +273,22 @@ def test_squad_sheet_name_is_sanitized_and_capped():
     title = load_workbook(io.BytesIO(content)).sheetnames[0]
     assert "/" not in title
     assert len(title) <= 31
+
+
+@pytest.mark.asyncio
+async def test_exports_give_the_height_in_metres(service):
+    sess, _ = await service.start_session(1, "Millonarios", "América", None)
+    await _capture(service, sess, "Castro de América buen pase")
+    await Prospect.filter(name="Castro").update(height_cm=175)
+    ended = await service.end_session(sess)
+
+    rows = list(csv.reader(io.StringIO(build_csv(ended).decode("utf-8-sig"))))
+    col = {name: i for i, name in enumerate(_CSV_COLUMNS)}
+    castro = next(r for r in rows[1:] if r[col["Player name"]] == "Castro")
+    assert castro[col["Height (m)"]] == "1.75"
+
+    sheets = _sheets(build_workbook(ended))
+    away = sheets["Visitante"]
+    assert away[1][away[0].index("Estatura (m)")] == 1.75
+
+    assert "1,75 m" in build_player_report(await Prospect.get(name="Castro"), [], "")

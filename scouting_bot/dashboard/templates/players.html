@@ -48,8 +48,13 @@
 </form>
 </details>
 
+{% if deleted is not none %}<p class="saved-note">{{ deleted }} jugador{{ "es eliminados" if deleted != 1 else " eliminado" }}.</p>{% endif %}
 {% if players %}
-<p class="muted">{{ players | length }} jugador{{ "es" if players | length != 1 }}</p>
+<form method="get" action="/dashboard/jugadores/eliminar" class="bulk-form">
+<div class="bulk-bar">
+  <p class="muted">{{ players | length }} jugador{{ "es" if players | length != 1 }}</p>
+  <button type="submit" class="chip-button danger">Eliminar seleccionados</button>
+</div>
 <table class="stack stack-wide">
   <thead>
     <tr><th>Jugador</th><th>Pos.</th><th>Edad</th><th>Equipo</th><th>Pie</th><th>Valor</th><th>Valoración</th><th>Decisión</th><th>Contacto</th><th>Part.</th></tr>
@@ -57,7 +62,7 @@
   <tbody>
     {% for p in players %}
     <tr>
-      <td><a href="/dashboard/jugadores/{{ p.id }}">{{ p.name }}</a></td>
+      <td class="pick-cell"><input type="checkbox" name="ids" value="{{ p.id }}" aria-label="Seleccionar {{ p.name }}"><a href="/dashboard/jugadores/{{ p.id }}">{{ p.name }}</a></td>
       <td data-label="Posición">{% if p.position_abbr %}<span class="pos-badge">{{ p.position_abbr }}</span>{% else %}{{ p.position or "—" }}{% endif %}</td>
       <td data-label="Edad" class="num">{{ p.age or "—" }}</td>
       <td data-label="Equipo">{{ p.team or "—" }}</td>
@@ -71,6 +76,7 @@
     {% endfor %}
   </tbody>
 </table>
+</form>
 {% elif filters.any %}
 <p class="muted">No hay jugadores que coincidan con los filtros.</p>
 {% else %}

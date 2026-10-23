@@ -72,6 +72,20 @@ FORMATIONS: dict[str, tuple[Slot, ...]] = {
         Slot("Delantero centro", 35, 86),
         Slot("Delantero centro", 65, 86),
     ),
+    # Wing-backs are the lateral roles ("carrilero" maps to them in positions).
+    "5-2-3": (
+        _GK,
+        Slot("Lateral izquierdo", 8, 38),
+        Slot("Defensa central", 28, 27),
+        Slot("Defensa central", 50, 25),
+        Slot("Defensa central", 72, 27),
+        Slot("Lateral derecho", 92, 38),
+        Slot("Mediocentro", 35, 54),
+        Slot("Mediocentro", 65, 54),
+        Slot("Extremo izquierdo", 15, 82),
+        Slot("Delantero centro", 50, 88),
+        Slot("Extremo derecho", 85, 82),
+    ),
 }
 
 DEFAULT_FORMATION = "4-3-3"

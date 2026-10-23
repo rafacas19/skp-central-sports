@@ -368,7 +368,7 @@ async def test_new_match_flow_goes_teams_formation_lineup_pitch(client):
     resp = await _new_match(client, local="Junior", visitante="Nacional")
     session = await Session.get()
     page = await client.get(resp.headers["location"])
-    assert "¿Cómo forma cada equipo?" in page.text and page.text.count('type="radio"') == 8
+    assert "¿Cómo forma cada equipo?" in page.text and page.text.count('type="radio"') == 2 * len(FORMATIONS)
     resp = await client.post(f"/dashboard/partidos/{session.id}/sistema",
                              data={auth.CSRF_FIELD: _csrf(page.text), "nuevo": "1",
                                    "home-f": "4-4-2", "away-f": "3-5-2"})
@@ -438,3 +438,198 @@ async def test_a_named_player_without_dorsal_shows_a_blank_shirt(client):
     chunk = page.text.split(f"/jugadores/{p.id}/evaluar")[1][:400]
     assert '<span class="shirt" aria-hidden="true"></span>' in chunk and "L. Arias" in chunk
     assert ">?<" not in page.text
+
+
+# ── Correcting a row keeps its score (feedback 26/10) ────────────────────
+def _form_values(html: str) -> dict[str, str]:
+    """Every input of the lineup form as the browser would post it."""
+    import re
+
+    out = {}
+    for tag in re.findall(r"<input[^>]*>", html):
+        name = re.search(r'name="([^"]*)"', tag)
+        value = re.search(r'value="([^"]*)"', tag)
+        if name:
+            out[name.group(1)] = value.group(1) if value else ""
+    return out
+
+
+async def _edit_lineup(client, match: Session, **changes) -> None:
+    """Open the lineup editor, change some fields, save — like the scout does."""
+    url = f"/dashboard/partidos/{match.id}/alineacion"
+    data = _form_values((await client.get(url)).text)
+    data.update({k.replace("_", "-"): v for k, v in changes.items()})
+    resp = await client.post(url, data=data)
+    assert resp.status_code == 303
+
+
+async def _scored(match: Session, name: str, rating: int = 4) -> Prospect:
+    from scouting_bot.evaluations import save_evaluation
+    from scouting_bot.profiles import get_profile
+
+    p = await Prospect.get(name=name)
+    await save_evaluation(match, p, profile=get_profile("lateral"), raw_scores={"1.1": rating})
+    return p
+
+
+async def test_retyping_the_name_of_a_player_new_to_this_match_renames_him(client):
+    match = await _web_match(client)
+    await _edit_lineup(client, match, home_s1_n="3", home_s1_p="Merlin Riascso")
+    p = await _scored(match, "Merlin Riascso")
+
+    await _edit_lineup(client, match, home_s1_p="Merlin Riascos")
+    renamed = await Prospect.get(id=p.id)
+    assert renamed.name == "Merlin Riascos"
+    assert await Prospect.all().count() == 1
+    assert (await Evaluation.get(session_id=match.id)).prospect_id == p.id
+    assert (await MatchPlayer.get(session_id=match.id)).prospect_id == p.id
+    pitch = await client.get(f"/dashboard/partidos/{match.id}/campo")
+    assert "M. Riascos" in pitch.text and 'token-rating" aria-hidden="true">4<' in pitch.text
+
+
+async def test_an_accent_fix_renames_the_same_person_even_with_history(client):
+    match = await _web_match(client)
+    p = await Prospect.create(
+        agent_chat_id=match.agent_chat_id, name="Merlin Riascos",
+        normalized_name=normalize_identity("Merlin Riascos"),
+        team="Junior", normalized_team=normalize_name("Junior"),
+    )
+    await _edit_lineup(client, match, home_s1_p="Merlin Riascos")
+    await _scored(match, "Merlin Riascos")
+    await _edit_lineup(client, match, home_s1_p="Merlín Riascos")
+    assert (await Prospect.get(id=p.id)).name == "Merlín Riascos"
+    assert await Prospect.all().count() == 1
+
+
+async def test_a_wrong_pick_with_history_hands_this_match_to_the_right_player(client):
+    match = await _web_match(client)
+    veteran = await Prospect.create(
+        agent_chat_id=match.agent_chat_id, name="Camilo Restrepo",
+        normalized_name=normalize_identity("Camilo Restrepo"),
+        team="Junior", normalized_team=normalize_name("Junior"), latest_rating=2.0,
+    )
+    from scouting_bot.models import Observation
+
+    earlier = await Session.create(agent_chat_id=match.agent_chat_id, home_team="Junior",
+                                   away_team="Cali", state="ended",
+                                   match_date=datetime(2026, 1, 10, tzinfo=timezone.utc))
+    await Observation.create(session=earlier, prospect=veteran, raw_quote="Buen partido", rating=2.0)
+    await _edit_lineup(client, match, home_s1_n="3", home_s1_p="Camilo Restrepo")
+    await _scored(match, "Camilo Restrepo", rating=5)
+
+    await _edit_lineup(client, match, home_s1_p="Jhon Duque")
+    duque = await Prospect.get(name="Jhon Duque")
+    assert (await Prospect.get(id=veteran.id)).name == "Camilo Restrepo"  # not renamed
+    ev = await Evaluation.get(session_id=match.id)
+    assert ev.prospect_id == duque.id and ev.rating == 5.0
+    assert not await Observation.filter(session_id=match.id, prospect_id=veteran.id).exists()
+    assert (await Observation.get(session_id=match.id, prospect_id=duque.id)).player_name == "Jhon Duque"
+    assert (await Prospect.get(id=duque.id)).latest_rating == 5.0
+    assert (await Prospect.get(id=veteran.id)).latest_rating == 2.0  # back to his own history
+    row = await MatchPlayer.get(session_id=match.id)
+    assert (row.prospect_id, row.slot, row.shirt_number) == (duque.id, 1, 3)
+
+
+async def test_retyping_into_a_known_club_player_merges_and_keeps_the_score(client):
+    match = await _web_match(client)
+    await _edit_lineup(client, match, home_s1_p="Kevn Mier")
+    typo = await _scored(match, "Kevn Mier")
+    known = await Prospect.create(
+        agent_chat_id=match.agent_chat_id, name="Kevin Mier",
+        normalized_name=normalize_identity("Kevin Mier"),
+        team="Junior", normalized_team=normalize_name("Junior"),
+    )
+    await _edit_lineup(client, match, home_s1_p="Kevin Mier")
+    assert not await Prospect.filter(id=typo.id).exists()
+    assert (await Evaluation.get(session_id=match.id)).prospect_id == known.id
+    assert (await MatchPlayer.get(session_id=match.id)).prospect_id == known.id
+
+
+async def test_changing_the_dorsal_keeps_the_player_on_every_kind_of_row(client):
+    match = await _web_match(client)
+    await _edit_lineup(client, match, home_s1_n="3", home_s1_p="Luis Arias",
+                       home_b0_n="14", home_b0_p="Pedro Gil", home_b1_n="15", away_s2_n="4")
+    starter, sub = await _scored(match, "Luis Arias"), await _scored(match, "Pedro Gil")
+    unnamed_sub = await Prospect.get(is_temporary=True, shirt_number=15)
+    unnamed = await Prospect.get(is_temporary=True, shirt_number=4)
+    for p in (unnamed_sub, unnamed):
+        from scouting_bot.evaluations import save_evaluation
+        from scouting_bot.profiles import get_profile
+
+        await save_evaluation(match, p, profile=get_profile("lateral"), raw_scores={"1.1": 3})
+
+    await _edit_lineup(client, match, home_s1_n="5", home_b0_n="16", home_b1_n="17", away_s2_n="6")
+    rows = {r.prospect_id: r.shirt_number for r in await MatchPlayer.filter(session_id=match.id)}
+    assert rows == {starter.id: 5, sub.id: 16, unnamed_sub.id: 17, unnamed.id: 6}
+    assert await Evaluation.filter(session_id=match.id).count() == 4
+    assert await Prospect.all().count() == 4
+
+
+async def test_a_match_can_be_played_in_a_5_2_3(client):
+    slots = FORMATIONS["5-2-3"]
+    assert [s.role for s in slots] == [
+        "Portero", "Lateral izquierdo", "Defensa central", "Defensa central", "Defensa central",
+        "Lateral derecho", "Mediocentro", "Mediocentro",
+        "Extremo izquierdo", "Delantero centro", "Extremo derecho",
+    ]
+    match = await _web_match(client)
+    page = await client.get(f"/dashboard/partidos/{match.id}/sistema")
+    assert "5-2-3" in page.text
+    await client.post(f"/dashboard/partidos/{match.id}/sistema",
+                      data={auth.CSRF_FIELD: _csrf(page.text), "home-f": "5-2-3", "away-f": "5-2-3"})
+    assert (await Session.get(id=match.id)).home_formation == "5-2-3"
+    lineup = await client.get(f"/dashboard/partidos/{match.id}/alineacion")
+    assert 'name="home-s10-n"' in lineup.text and 'name="home-s11-n"' not in lineup.text
+    pitch = await client.get(f"/dashboard/partidos/{match.id}/campo")
+    assert pitch.text.count("/puesto/") >= 22  # every position of both sides is on the pitch
+
+
+# ── Team colours (amendment A1) ──────────────────────────────────────────
+async def _formation(client, match: Session, **fields) -> None:
+    page = await client.get(f"/dashboard/partidos/{match.id}/sistema")
+    data = {auth.CSRF_FIELD: _csrf(page.text), "home-f": "4-3-3", "away-f": "4-3-3"}
+    data.update({k.replace("_", "-"): v for k, v in fields.items()})
+    assert (await client.post(f"/dashboard/partidos/{match.id}/sistema", data=data)).status_code == 303
+
+
+async def test_each_team_wears_the_colour_picked_on_the_formation_step(client):
+    match = await _web_match(client)
+    page = await client.get(f"/dashboard/partidos/{match.id}/sistema")
+    assert 'type="color" name="home-c" value="#ffffff"' in page.text
+    assert 'type="color" name="away-c" value="#1e3a8a"' in page.text
+
+    await _formation(client, match, home_c="#C8102E", away_c="#ffd100")
+    match = await Session.get(id=match.id)
+    assert (match.home_color, match.away_color) == ("#c8102e", "#ffd100")
+    await _edit_lineup(client, match, home_s1_n="3", away_s1_n="4", home_b0_n="14")
+    pitch = await client.get(f"/dashboard/partidos/{match.id}/campo")
+    assert "--shirt: #c8102e; --ink: #ffffff;" in pitch.text  # white dorsal on red
+    assert "--shirt: #ffd100; --ink: #111111;" in pitch.text  # black dorsal on yellow
+    assert 'class="bench bench-home" style="--shirt: #c8102e;' in pitch.text
+    assert 'value="#c8102e"' in (await client.get(f"/dashboard/partidos/{match.id}/sistema")).text
+
+
+async def test_without_a_colour_the_pitch_keeps_its_kit_and_bad_values_are_ignored(client):
+    match = await _web_match(client)
+    await _formation(client, match, home_c="#ffffff", away_c="#1e3a8a")  # untouched pickers
+    await _formation(client, match, home_c="red", away_c="javascript:x")
+    match = await Session.get(id=match.id)
+    assert (match.home_color, match.away_color) == (None, None)
+    await _edit_lineup(client, match, home_s1_n="3")
+    assert "--shirt" not in (await client.get(f"/dashboard/partidos/{match.id}/campo")).text
+
+
+async def test_two_similar_colours_get_a_warning(client):
+    match = await _web_match(client)
+    await _formation(client, match, home_c="#c8102e", away_c="#d01530")
+    page = await client.get(f"/dashboard/partidos/{match.id}/sistema")
+    assert "colores muy parecidos" in page.text
+
+
+def test_dorsal_ink_follows_the_shirt():
+    from scouting_bot.kits import clean_color, ink, too_similar
+
+    assert ink("#ffffff") == "#111111" and ink("#000000") == "#ffffff"
+    assert ink("#1e3a8a") == "#ffffff" and ink("#ffd100") == "#111111"
+    assert clean_color(" #ABCDEF ") == "#abcdef" and clean_color("#abc") is None
+    assert too_similar("#c8102e", "#d01530") and not too_similar("#ffffff", "#1e3a8a")

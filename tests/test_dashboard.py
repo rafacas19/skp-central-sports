@@ -1749,3 +1749,64 @@ async def test_a_two_role_player_matches_either_role(client, dashboard_auth):
 
     assert "Ángel López" in as_defender.text
     assert "Ángel López" in as_midfield.text
+
+
+# ── Deleting players (feedback 26/10) ────────────────────────────────────
+async def test_deleting_a_player_asks_first_then_removes_everything(client, dashboard_auth):
+    from scouting_bot.models import Evaluation, MatchPlayer, ProfileReport, ProspectPhoto
+
+    await _login(client)
+    data = await _seed()
+    ferrin, ocampo = data["ferrin"], data["ocampo"]
+    squad = await Squad.create(agent_chat_id=1, name="Colombia", normalized_name="colombia")
+    await SquadMember.create(squad=squad, prospect=ferrin)
+    await Evaluation.create(session=data["old"], prospect=ferrin, rating=5)
+    await MatchPlayer.create(session=data["old"], prospect=ferrin, side="home", slot=9)
+    await ProfileReport.create(prospect=ferrin, profile="delantero")
+    await ProspectPhoto.create(prospect=ferrin, data=b"\xff\xd8\xff", mime="image/jpeg")
+
+    profile = await client.get(f"/dashboard/jugadores/{ferrin.id}")
+    assert f'href="/dashboard/jugadores/eliminar?ids={ferrin.id}"' in profile.text
+    page = await client.get(f"/dashboard/jugadores/eliminar?ids={ferrin.id}")
+    assert page.status_code == 200
+    assert "Jordan Ferrin" in page.text and "2 partidos" in page.text
+    assert "1 evaluación" in page.text and "2 observaciones" in page.text
+    assert "1 convocatoria" in page.text and "No se puede deshacer" in page.text
+    assert await Prospect.filter(id=ferrin.id).exists()  # looking deletes nothing
+
+    resp = await client.post("/dashboard/jugadores/eliminar",
+                             data={auth.CSRF_FIELD: _csrf(page.text), "ids": str(ferrin.id)})
+    assert resp.status_code == 303 and resp.headers["location"] == "/dashboard/jugadores?eliminados=1"
+    assert not await Prospect.filter(id=ferrin.id).exists()
+    for model in (Observation, Evaluation, MatchPlayer, SquadMember, ProfileReport, ProspectPhoto):
+        assert not await model.filter(prospect_id=ferrin.id).exists(), model
+    assert await Prospect.filter(id=ocampo.id).exists()
+    assert await Observation.filter(is_team_note=True).exists()  # team notes untouched
+    listing = await client.get("/dashboard/jugadores?eliminados=1")
+    assert "1 jugador eliminado" in listing.text and "Jordan Ferrin" not in listing.text
+
+
+async def test_several_players_are_deleted_from_the_list(client, dashboard_auth):
+    await _login(client)
+    data = await _seed()
+    listing = await client.get("/dashboard/jugadores")
+    assert 'action="/dashboard/jugadores/eliminar"' in listing.text
+    assert f'name="ids" value="{data["ocampo"].id}"' in listing.text
+    ids = [data["ferrin"].id, data["ocampo"].id]
+    page = await client.get("/dashboard/jugadores/eliminar", params={"ids": ids})
+    assert "Eliminar 2 jugadores" in page.text and "Ocampo" in page.text
+    resp = await client.post("/dashboard/jugadores/eliminar",
+                             data={auth.CSRF_FIELD: _csrf(page.text), "ids": [str(i) for i in ids]})
+    assert resp.headers["location"] == "/dashboard/jugadores?eliminados=2"
+    assert await Prospect.filter(id__in=ids).count() == 0
+    assert await Prospect.filter(id=data["temp"].id).exists()
+
+
+async def test_deleting_needs_a_selection_and_the_csrf_token(client, dashboard_auth):
+    await _login(client)
+    data = await _seed()
+    page = await client.get("/dashboard/jugadores/eliminar")
+    assert "No has seleccionado ningún jugador" in page.text
+    resp = await client.post("/dashboard/jugadores/eliminar", data={"ids": str(data["ferrin"].id)})
+    assert resp.status_code in (400, 403)
+    assert await Prospect.filter(id=data["ferrin"].id).exists()

@@ -19,14 +19,14 @@
   {% if t.empty %}
   <form class="token-form" method="post" action="/dashboard/partidos/{{ match.id }}/puesto/{{ t.side }}/{{ t.slot }}">
     <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
-    <button type="submit" class="{{ cls }}" style="--x: {{ t.left }}; --y: {{ t.top }}"
+    <button type="submit" class="{{ cls }}" style="--x: {{ t.left }}; --y: {{ t.top }}; {{ kits[t.side] }}"
             aria-label="{{ t.role }}, sin jugador asignado: puntuar este puesto">
       <span class="shirt" aria-hidden="true"></span>
       <span class="token-name" aria-hidden="true">{{ t.label }}</span>
     </button>
   </form>
   {% else %}
-  <a class="{{ cls }}" style="--x: {{ t.left }}; --y: {{ t.top }}"
+  <a class="{{ cls }}" style="--x: {{ t.left }}; --y: {{ t.top }}; {{ kits[t.side] }}"
      href="/dashboard/partidos/{{ match.id }}/jugadores/{{ t.id }}/evaluar"
      aria-label="{{ t.name }}{% if t.number != '' %}, dorsal {{ t.number }}{% endif %}, {{ t.role }}{% if t.rating is not none %}, puntuado {{ t.rating | valoracion }}{% else %}, sin puntuar{% endif %}">
     <span class="shirt" aria-hidden="true">{{ shirt }}</span>
@@ -43,7 +43,7 @@
   </p>
   {% for b in benches %}
   {% if b.players %}
-  <div class="bench">
+  <div class="bench bench-{{ b.side }}"{% if kits[b.side] %} style="{{ kits[b.side] }}"{% endif %}>
     <h2 class="bench-title">Suplentes · {{ b.team }}</h2>
     <div class="bench-list">
       {% for p in b.players %}

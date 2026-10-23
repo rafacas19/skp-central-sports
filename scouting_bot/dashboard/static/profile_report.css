@@ -68,6 +68,7 @@
 .pr-obs-block p { margin: 0; font-size: 6.8pt; line-height: 1.2; }
 .pr-video { text-align: right; margin: 2px 0 0; font-weight: 700; font-size: 10pt; }
 .pr-video a { color: #111; }
+.pr-video a + a { margin-left: 14px; }
 
 /* Screen only: the sheet sits on a card and scrolls sideways on a phone. */
 .pr-screen { overflow-x: auto; margin-top: 12px; }

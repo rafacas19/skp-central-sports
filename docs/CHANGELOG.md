@@ -5,6 +5,31 @@ tecnicismos.
 
 ---
 
+## Ajustes de octubre de 2026 — lo pedido en la sesión del 26/10
+
+### ⚽ Partidos
+- **Nuevo sistema 5-2-3**, junto a 4-3-3, 4-4-2, 4-2-3-1 y 3-5-2.
+- **Color de cada equipo**: en el paso *Sistema* (o en *Cambiar sistema* desde
+  el campo) elige el color de camiseta de cada equipo. El dorsal se pinta en
+  blanco o negro según lo que mejor se lea.
+- **Corregir un nombre o un dorsal ya no borra la valoración.** En *Dorsales y
+  nombres* puedes cambiar el dorsal de cualquier jugador (titular o suplente) y
+  arreglar un nombre mal escrito: la puntuación se queda en su puesto. Si el
+  jugador que pusiste era otro (uno con más partidos), su historial no se toca y
+  la nota de este partido pasa al jugador correcto.
+
+### 👤 Jugadores
+- **Eliminar jugadores**: botón *Eliminar* en el perfil, o marca varios en la
+  lista y pulsa *Eliminar seleccionados*. Siempre se confirma antes, porque se
+  borra todo lo del jugador (también sus observaciones) y **no se puede deshacer**.
+- **Foto en el perfil**, junto al nombre. Tócala para cambiarla.
+- **Enlace a Transfermarkt** en el perfil y en el informe.
+- **Estatura en metros**: escribe `1,75` (también vale `175`) y se muestra
+  *1,75 m*, también en los Excel.
+- **Contrato hasta mes y año** (el mes es opcional): *06/2027*.
+
+---
+
 ## Versión de octubre de 2026 — «Partido en el panel»
 
 Nuevo en el **panel web**, pensado para usarlo **desde el móvil**. El bot de

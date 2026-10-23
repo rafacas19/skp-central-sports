@@ -21,6 +21,7 @@ import csv
 import io
 from collections import defaultdict
 
+from .measures import format_height, height_m
 from .models import Observation, Prospect, Session, decision_for_rating
 
 
@@ -94,7 +95,7 @@ _CSV_COLUMNS = [
     "Number",
     "Position",
     "Age",
-    "Height",
+    "Height (m)",
     "Minute",
     "Observation",
     "Source",
@@ -129,7 +130,7 @@ def build_csv(session: Session) -> bytes:
                 o.player_number if o.player_number is not None else "",
                 o.player_position or (p.position if p else ""),
                 p.age if p and p.age is not None else "",
-                p.height_cm if p and p.height_cm is not None else "",
+                height_m(p.height_cm) if p and p.height_cm is not None else "",
                 o.minute if o.minute is not None else "",
                 o.raw_quote,
                 o.source or "",
@@ -162,7 +163,7 @@ _XLSX_COLUMNS = [
     "Nombre jugador",
     "Número",
     "Edad",
-    "Estatura",
+    "Estatura (m)",
     "Observaciones agrupadas",
     "Valoración final",
     "Decisión",
@@ -228,7 +229,7 @@ def _player_rows(session: Session) -> dict[str, list[list]]:
         if not name and number is None:
             continue
         age = p.age if p and p.age is not None else None
-        height = p.height_cm if p and p.height_cm is not None else None
+        height = height_m(p.height_cm) if p else None
         rating = (p.latest_rating if p and p.latest_rating is not None
                   else _latest(obs, "rating"))
         decision = (p.decision_status if p and p.decision_status
@@ -322,7 +323,7 @@ _HISTORY_COLUMNS = [
     "Club",
     "Posición",
     "Edad",
-    "Estatura",
+    "Estatura (m)",
     "Partidos observados",
     "Fechas",
     "Observaciones",
@@ -370,7 +371,7 @@ def build_historical_workbook(
                 prospect.team or "",
                 prospect.position or "",
                 prospect.age if prospect.age is not None else "",
-                prospect.height_cm if prospect.height_cm is not None else "",
+                height_m(prospect.height_cm) if prospect.height_cm is not None else "",
                 len(matches),
                 ", ".join(dates),
                 "\n".join(blocks),
@@ -534,7 +535,7 @@ def build_player_report(
     if prospect.age is not None:
         bio.append(f"{prospect.age} años")
     if prospect.height_cm is not None:
-        bio.append(f"{prospect.height_cm} cm")
+        bio.append(format_height(prospect.height_cm))
     if bio:
         lines.append(" · ".join(bio))
     if prospect.latest_rating is not None:

@@ -174,6 +174,48 @@ async def _refresh_headline(prospect: Prospect, session: Session, rating: float)
     prospect.decision_status = decision
 
 
+async def move_match(session: Session, source: Prospect, target: Prospect) -> None:
+    """Hand one match's sheet and notes from `source` to `target`.
+
+    For a lineup correction where the scout put the wrong player on a spot:
+    what was scored there belongs to whoever really played it. The source keeps
+    every other match; his headline rating is re-derived from what he has left.
+    A sheet the target already had for this match gives way to the moved one —
+    it is the one the scout sees on that spot."""
+    if source.id == target.id:
+        return
+    moved = await Evaluation.get_or_none(session_id=session.id, prospect_id=source.id)
+    if moved is not None:
+        stale = await Evaluation.get_or_none(session_id=session.id, prospect_id=target.id)
+        if stale is not None:
+            if stale.observation_id:
+                await Observation.filter(id=stale.observation_id).delete()
+            await stale.delete()
+    await Evaluation.filter(session_id=session.id, prospect_id=source.id).update(
+        prospect_id=target.id
+    )
+    await Observation.filter(session_id=session.id, prospect_id=source.id).update(
+        prospect_id=target.id, player_name=target.name or None, team=target.team,
+    )
+    if moved is not None and moved.rating is not None:
+        await _refresh_headline(target, session, moved.rating)
+    await _rederive_headline(source)
+
+
+async def _rederive_headline(prospect: Prospect) -> None:
+    """Headline rating from the most recent rated match the player still has.
+    With none left the stored value stays: it may be one the scout typed."""
+    rated = await Observation.filter(
+        prospect_id=prospect.id, rating__not_isnull=True
+    ).prefetch_related("session")
+    if not rated:
+        return
+    latest = max(rated, key=lambda o: (match_when(o.session), o.created_at))
+    await Prospect.filter(id=prospect.id).update(
+        latest_rating=latest.rating, decision_status=decision_for_rating(latest.rating)
+    )
+
+
 async def check_merge(keep_id: int, drop_id: int) -> None:
     """Raise MergeConflict if both profiles have a sheet for the same match."""
     kept = set(
