@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..categories import split_category
-from ..evaluations import MergeConflict, match_when, move_match
+from ..evaluations import MergeConflict, match_when, move_match, rederive_headline
 from ..formations import BENCH_ROWS, FORMATIONS, get_formation, pitch_point
 from ..kits import DEFAULT_COLORS, clean_color, kit_style, too_similar
 from ..models import (
@@ -535,6 +535,12 @@ async def _correct_name(
             # Both were scored in this match: the score on this row wins.
             await move_match(session, held, existing)
             await storage.merge_prospects(existing.id, held.id)
+        # The notes keep the typo they were taken under, and the exports read
+        # it before the profile; the headline follows his newest rated match.
+        await Observation.filter(session_id=session.id, prospect_id=existing.id).update(
+            player_name=existing.name
+        )
+        await rederive_headline(existing)
         return await Prospect.get(id=existing.id)
     target = await _resolve(storage, session, _team(session, side), name, number, role)
     await move_match(session, held, target)
@@ -630,6 +636,12 @@ async def save_lineup(session: Session, form: dict[str, str]) -> None:
             session_id=session.id, prospect_id=prospect.id, side=side,
             slot=slot, shirt_number=number, **flags,
         )
+        if number is not None:
+            # The lineup is this match's word on the dorsal; the exports read it
+            # off the notes, so a corrected one must reach them too.
+            await Observation.filter(
+                session_id=session.id, prospect_id=prospect.id, is_substitution=False
+            ).update(player_number=number)
     for old_id, new_id in became.items():
         await MatchPlayer.filter(session_id=session.id, came_on_for_id=old_id).update(
             came_on_for_id=new_id

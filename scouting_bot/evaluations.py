@@ -20,6 +20,7 @@ from .models import (
     HOME,
     SOURCE_WEB,
     Evaluation,
+    MatchPlayer,
     Observation,
     Prospect,
     Session,
@@ -142,7 +143,8 @@ async def _mirror(
         "side": _side(session, prospect.team),
         "team": prospect.team,
         "player_name": prospect.name or None,
-        "player_number": prospect.shirt_number,
+        # The dorsal he wore in this match when the lineup has one.
+        "player_number": await _match_dorsal(session, prospect),
         "player_position": prospect.position,
         "source": SOURCE_WEB,
         "rating": evaluation.rating,
@@ -154,6 +156,13 @@ async def _mirror(
         await evaluation.save(update_fields=["observation_id"])
     else:
         await Observation.filter(id=obs.id).update(**fields)
+
+
+async def _match_dorsal(session: Session, prospect: Prospect) -> int | None:
+    row = await MatchPlayer.get_or_none(session_id=session.id, prospect_id=prospect.id)
+    if row is not None and row.shirt_number is not None:
+        return row.shirt_number
+    return prospect.shirt_number
 
 
 async def _refresh_headline(prospect: Prospect, session: Session, rating: float) -> None:
@@ -199,10 +208,10 @@ async def move_match(session: Session, source: Prospect, target: Prospect) -> No
     )
     if moved is not None and moved.rating is not None:
         await _refresh_headline(target, session, moved.rating)
-    await _rederive_headline(source)
+    await rederive_headline(source)
 
 
-async def _rederive_headline(prospect: Prospect) -> None:
+async def rederive_headline(prospect: Prospect) -> None:
     """Headline rating from the most recent rated match the player still has.
     With none left the stored value stays: it may be one the scout typed."""
     rated = await Observation.filter(

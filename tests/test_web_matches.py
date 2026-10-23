@@ -544,8 +544,13 @@ async def test_retyping_into_a_known_club_player_merges_and_keeps_the_score(clie
         normalized_name=normalize_identity("Kevin Mier"),
         team="Junior", normalized_team=normalize_name("Junior"),
     )
+    await Prospect.filter(id=known.id).update(latest_rating=2.0)  # from an older viewing
     await _edit_lineup(client, match, home_s1_p="Kevin Mier")
     assert not await Prospect.filter(id=typo.id).exists()
+    from scouting_bot.models import Observation
+
+    assert {o.player_name for o in await Observation.filter(session_id=match.id)} == {"Kevin Mier"}
+    assert (await Prospect.get(id=known.id)).latest_rating == 4.0  # this, his newest match
     assert (await Evaluation.get(session_id=match.id)).prospect_id == known.id
     assert (await MatchPlayer.get(session_id=match.id)).prospect_id == known.id
 
@@ -566,6 +571,10 @@ async def test_changing_the_dorsal_keeps_the_player_on_every_kind_of_row(client)
     await _edit_lineup(client, match, home_s1_n="5", home_b0_n="16", home_b1_n="17", away_s2_n="6")
     rows = {r.prospect_id: r.shirt_number for r in await MatchPlayer.filter(session_id=match.id)}
     assert rows == {starter.id: 5, sub.id: 16, unnamed_sub.id: 17, unnamed.id: 6}
+    from scouting_bot.models import Observation
+
+    notes = {o.prospect_id: o.player_number for o in await Observation.filter(session_id=match.id)}
+    assert notes == rows  # the exports read the dorsal off the notes
     assert await Evaluation.filter(session_id=match.id).count() == 4
     assert await Prospect.all().count() == 4
 
