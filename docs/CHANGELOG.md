@@ -5,6 +5,14 @@ tecnicismos.
 
 ---
 
+## Noviembre de 2026
+
+### ⚽ Partidos
+- **Nuevo sistema 3-4-3**: tres centrales, dos carrileros, dos mediocentros y
+  tridente arriba. Se elige en el paso *Sistema*, como los demás.
+
+---
+
 ## Ajustes de octubre de 2026 — lo pedido en la sesión del 26/10
 
 ### ⚽ Partidos

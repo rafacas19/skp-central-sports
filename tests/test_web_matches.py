@@ -579,6 +579,25 @@ async def test_changing_the_dorsal_keeps_the_player_on_every_kind_of_row(client)
     assert await Prospect.all().count() == 4
 
 
+async def test_a_match_can_be_played_in_a_3_4_3(client):
+    slots = FORMATIONS["3-4-3"]
+    assert [s.role for s in slots] == [
+        "Portero", "Defensa central", "Defensa central", "Defensa central",
+        "Lateral izquierdo", "Mediocentro", "Mediocentro", "Lateral derecho",
+        "Extremo izquierdo", "Delantero centro", "Extremo derecho",
+    ]
+    match = await _web_match(client)
+    page = await client.get(f"/dashboard/partidos/{match.id}/sistema")
+    assert "3-4-3" in page.text
+    await client.post(f"/dashboard/partidos/{match.id}/sistema",
+                      data={auth.CSRF_FIELD: _csrf(page.text), "home-f": "3-4-3", "away-f": "3-4-3"})
+    assert (await Session.get(id=match.id)).home_formation == "3-4-3"
+    lineup = await client.get(f"/dashboard/partidos/{match.id}/alineacion")
+    assert 'name="home-s10-n"' in lineup.text and 'name="home-s11-n"' not in lineup.text
+    pitch = await client.get(f"/dashboard/partidos/{match.id}/campo")
+    assert pitch.text.count("/puesto/") >= 22  # every position of both sides is on the pitch
+
+
 async def test_a_match_can_be_played_in_a_5_2_3(client):
     slots = FORMATIONS["5-2-3"]
     assert [s.role for s in slots] == [
